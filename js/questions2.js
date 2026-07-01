@@ -703,5 +703,5 @@ exp:"Under RCW 48.17.060, a license is required for soliciting insurance — inc
 ];
 
 // Push all chapter 4-7 questions into the main array
-window.QUESTIONS = window.QUESTIONS.concat(Q2);
+Q2.forEach(q => QUESTIONS.push(q));
 })();

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "wa-life-exam",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "3737", "--directory", "C:\\Users\\RUDY\\CLAUDE VIDEO'S\\wa-life-exam"],
+      "port": 3737
+    }
+  ]
+}
