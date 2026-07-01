@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head><title>Icon Generator — run once then delete</title></head>
+<body>
+<canvas id="c192" width="192" height="192" style="border:1px solid #ccc;margin:8px"></canvas>
+<canvas id="c512" width="512" height="512" style="border:1px solid #ccc;margin:8px"></canvas>
+<br>
+<button onclick="downloadIcons()">Download Both Icons</button>
+<p style="font-family:sans-serif;font-size:13px;color:#555">Click the button. Save icon-192.png and icon-512.png into the <code>icons/</code> folder, then delete this file.</p>
+
+<script>
+function drawIcon(canvas) {
+  const sz = canvas.width;
+  const ctx = canvas.getContext('2d');
+  const r = sz * 0.14;
+
+  // Background
+  const bg = ctx.createLinearGradient(0, 0, sz, sz);
+  bg.addColorStop(0, '#1a1d2e');
+  bg.addColorStop(1, '#252840');
+  ctx.fillStyle = bg;
+  ctx.beginPath();
+  ctx.moveTo(r, 0); ctx.lineTo(sz-r, 0);
+  ctx.quadraticCurveTo(sz, 0, sz, r);
+  ctx.lineTo(sz, sz-r);
+  ctx.quadraticCurveTo(sz, sz, sz-r, sz);
+  ctx.lineTo(r, sz);
+  ctx.quadraticCurveTo(0, sz, 0, sz-r);
+  ctx.lineTo(0, r);
+  ctx.quadraticCurveTo(0, 0, r, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  // Accent circle
+  const cx = sz/2, cy = sz/2, rad = sz * 0.35;
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
+  grad.addColorStop(0, 'rgba(79,110,247,0.3)');
+  grad.addColorStop(1, 'rgba(79,110,247,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, rad, 0, Math.PI*2);
+  ctx.fill();
+
+  // Text "WA"
+  ctx.fillStyle = '#4f6ef7';
+  ctx.font = `bold ${sz*0.3}px -apple-system, Arial`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('WA', cx, cy - sz*0.08);
+
+  // Subtext
+  ctx.fillStyle = '#e2e8f0';
+  ctx.font = `${sz*0.09}px -apple-system, Arial`;
+  ctx.fillText('LIFE EXAM', cx, cy + sz*0.2);
+}
+
+function downloadIcons() {
+  ['c192','c512'].forEach(id => {
+    const canvas = document.getElementById(id);
+    drawIcon(canvas);
+    const a = document.createElement('a');
+    a.download = 'icon-' + canvas.width + '.png';
+    a.href = canvas.toDataURL('image/png');
+    a.click();
+  });
+}
+
+// Draw preview on load
+window.onload = () => {
+  drawIcon(document.getElementById('c192'));
+  drawIcon(document.getElementById('c512'));
+};
+</script>
+</body>
+</html>
