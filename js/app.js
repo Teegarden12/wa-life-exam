@@ -60,7 +60,7 @@ function renderQuizHome() {
 }
 
 window.startChapterQuiz = function(chId) {
-  const qs = shuffle(QUESTIONS.filter(q => q.ch === chId));
+  const qs = shuffle(QUESTIONS.filter(q => q.ch === chId)).map(shuffleOptions);
   if (!qs.length) return;
   quizState = {
     questions: qs,
@@ -70,6 +70,7 @@ window.startChapterQuiz = function(chId) {
     chId
   };
   document.getElementById('quiz-chapter-list').style.display = 'none';
+  document.getElementById('quiz-results').style.display = 'none';
   document.getElementById('quiz-active').style.display = 'block';
   renderQuizQuestion();
 };
@@ -125,14 +126,17 @@ window.nextQuizQuestion = function() {
 window.finishQuiz = function() {
   Storage.recordQuizResult(quizState.chId, quizState.correct, quizState.questions.length);
   const pct = Math.round((quizState.correct / quizState.questions.length) * 100);
-  document.getElementById('quiz-active').innerHTML = `
+  document.getElementById('quiz-active').style.display = 'none';
+  const results = document.getElementById('quiz-results');
+  results.style.display = 'block';
+  results.innerHTML = `
     <div class="card text-center">
       <h2>Quiz Complete!</h2>
       <div class="result-score ${pct >= 70 ? 'pass' : 'fail'}">${pct}%</div>
       <div class="result-badge">${quizState.correct} / ${quizState.questions.length} correct</div>
       <div class="flex gap-2" style="justify-content:center; flex-wrap:wrap; margin-top:16px;">
         <button class="btn btn-primary" onclick="startChapterQuiz(${quizState.chId})">Retry Chapter</button>
-        <button class="btn btn-outline" onclick="showScreen('quiz')">All Chapters</button>
+        <button class="btn btn-outline" onclick="exitQuiz()">All Chapters</button>
       </div>
     </div>`;
 };
@@ -140,6 +144,7 @@ window.finishQuiz = function() {
 window.exitQuiz = function() {
   document.getElementById('quiz-chapter-list').style.display = 'block';
   document.getElementById('quiz-active').style.display = 'none';
+  document.getElementById('quiz-results').style.display = 'none';
   renderQuizHome();
 };
 
@@ -205,7 +210,7 @@ window.startExam = function(mode) {
   else if (mode === 'half') { count = 50; minutes = 75; }
   else { count = 100; minutes = 150; }
 
-  const qs = shuffle([...QUESTIONS]).slice(0, count);
+  const qs = shuffle([...QUESTIONS]).slice(0, count).map(shuffleOptions);
   examState = {
     questions: qs,
     answers: new Array(count).fill(null),
@@ -421,6 +426,13 @@ function shuffle(arr) {
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
+}
+
+// Returns a copy of the question with its options (and correct index) in randomized
+// order, so the correct answer isn't always in the same position (e.g. always "B").
+function shuffleOptions(q) {
+  const order = shuffle(q.opts.map((_, i) => i));
+  return { ...q, opts: order.map(i => q.opts[i]), correct: order.indexOf(q.correct) };
 }
 
 // ── INIT ───────────────────────────────────────────────────────────
