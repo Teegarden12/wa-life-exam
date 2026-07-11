@@ -1,12 +1,12 @@
 // Service Worker — WA Life Insurance Exam Prep
-const CACHE = 'wa-life-exam-v3';
+const CACHE = 'wa-life-exam-v4';
 const ASSETS = [
   './',
   './index.html',
   './css/style.css',
-  './js/storage.js?v=20260630',
-  './js/questions.js?v=20260630',
-  './js/app.js?v=20260630',
+  './js/storage.js?v=20260711',
+  './js/questions.js?v=20260711',
+  './js/app.js?v=20260711',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
