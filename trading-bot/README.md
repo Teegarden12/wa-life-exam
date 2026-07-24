@@ -27,6 +27,28 @@ brokerage. You are always the human who decides whether to place a trade.
 
 ---
 
+## The app (easiest way to use it)
+
+Prefer buttons over the command line? Run the app:
+
+```bash
+python3 app.py
+```
+
+It opens a dashboard in your browser (on `http://127.0.0.1:8787` — your machine
+only, nothing exposed to the network) where you can:
+
+- pick the **instrument** and **strategy** (or Auto) from dropdowns
+- press **Start / Stop**
+- watch the **live price, position, paper P&L, and win/loss** update
+- see each **signal to mirror** with the exact stop/target in ticks and dollars
+- **Backtest** one day or **Compare** all strategies and get a recommendation —
+  all from the Tools panel
+
+Everything the command-line tool does, with nothing to type. It's the same
+engine underneath, so all the same caveats apply: fake money, mirror in Lucid by
+hand, no guaranteed edge.
+
 ## Choosing your instrument
 
 Pick the instrument with **`--symbol`** (or `"symbol"` in `config.json`):
