@@ -122,9 +122,80 @@ class Donchian:
         return "FLAT", "inside channel", aa
 
 
+class FairValueGap:
+    """Fair-value gap (FVG / imbalance): a 3-bar gap where price skipped a zone.
+
+    Bullish FVG: bar i's low is above bar i-2's high — an unfilled gap up. When
+    price pulls back INTO that zone (fair value), trade in the gap's direction.
+    Bearish FVG is the mirror. Only the most recent gap in the scan window is
+    used.
+    """
+    key = "fair_value"
+    label = "Fair-value gap (FVG)"
+
+    def __init__(self, scan=10, atr_period=14):
+        self.scan, self.ap = scan, atr_period
+
+    def decide(self, candles):
+        if len(candles) < max(self.scan, self.ap) + 3:
+            return "FLAT", "warming up", None
+        aa = _atr_last(candles, self.ap)
+        if aa is None:
+            return "FLAT", "warming up", None
+        price = candles[-1]["close"]
+        last = len(candles) - 1
+        for i in range(last, 1, -1):
+            if last - i > self.scan:
+                break
+            hi2, lo2 = candles[i - 2]["high"], candles[i - 2]["low"]
+            hi0, lo0 = candles[i]["high"], candles[i]["low"]
+            if lo0 > hi2:  # bullish FVG, zone [hi2, lo0]
+                if hi2 <= price <= lo0:
+                    return "LONG", f"bullish FVG {hi2:.2f}-{lo0:.2f}", aa
+                break
+            if hi0 < lo2:  # bearish FVG, zone [hi0, lo2]
+                if hi0 <= price <= lo2:
+                    return "SHORT", f"bearish FVG {hi0:.2f}-{lo2:.2f}", aa
+                break
+        return "FLAT", "no FVG in zone", aa
+
+
+class SupportResistance:
+    """Support/Resistance bounce: fade the edges of the recent range.
+
+    Support = lowest low over the lookback, resistance = highest high. When price
+    comes within `near` x ATR of a level, trade the bounce back into the range.
+    (This fades the level; Donchian instead trades the break of it.)
+    """
+    key = "support_resistance"
+    label = "Support/Resistance bounce"
+
+    def __init__(self, lookback=30, near=0.5, atr_period=14):
+        self.lb, self.near, self.ap = lookback, near, atr_period
+
+    def decide(self, candles):
+        if len(candles) < max(self.lb, self.ap) + 2:
+            return "FLAT", "warming up", None
+        aa = _atr_last(candles, self.ap)
+        if aa is None:
+            return "FLAT", "warming up", None
+        window = candles[-self.lb - 1:-1]  # exclude current bar
+        support = min(c["low"] for c in window)
+        resistance = max(c["high"] for c in window)
+        price = candles[-1]["close"]
+        tol = self.near * aa
+        if abs(price - support) <= tol:
+            return "LONG", f"bounce support {support:.2f}", aa
+        if abs(price - resistance) <= tol:
+            return "SHORT", f"reject resistance {resistance:.2f}", aa
+        return "FLAT", "mid-range", aa
+
+
 REGISTRY = {
     EmaRsi.key: EmaRsi,
     ORB.key: ORB,
+    FairValueGap.key: FairValueGap,
+    SupportResistance.key: SupportResistance,
     VwapRevert.key: VwapRevert,
     Donchian.key: Donchian,
 }

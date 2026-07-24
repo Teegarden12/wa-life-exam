@@ -3,23 +3,16 @@
 Compare strategies across many saved days.
 
 Runs every strategy in strategies.REGISTRY over a folder of daily bar files
-(one CSV per day, e.g. from `bot.py --record` or NinjaTrader export) and reports,
-per strategy:
+(one CSV per day, e.g. from `bot.py --record` or NinjaTrader export), ranks them
+over the recorded period, and RECOMMENDS the one that worked best.
 
-  * trades, win rate WITH a 95% confidence interval (Wilson)
-  * net P&L, profit factor, expectancy per trade
-  * max drawdown, and % of days that finished green
-
-Then it does a WALK-FORWARD test: it picks the best strategy using only the
-OLDER days, and reports how that choice did on the NEWER days it never saw. That
-out-of-sample result is the most honest proxy you can get for "what might happen
-next" — and it is still not a guarantee.
+Per strategy it reports: trades, win rate with a 95% confidence interval, net
+P&L, profit factor, expectancy per trade, max drawdown, and % of days green.
 
 Usage:
     python3 compare.py --data-dir data --symbol MES
+    python3 compare.py --data-dir data --symbol MES --last-days 5   # past week
     python3 compare.py --data-dir data --symbol MES --contracts 2 --stop-atr 2
-
-Read the honesty note the tool prints at the end. A backtest describes the past.
 """
 
 import argparse
@@ -102,6 +95,8 @@ def main():
     ap.add_argument("--contracts", type=int, default=1)
     ap.add_argument("--stop-atr", type=float, default=1.5)
     ap.add_argument("--target-atr", type=float, default=2.0)
+    ap.add_argument("--last-days", type=int, default=0,
+                    help="only use the most recent N day-files (e.g. 5 = past week); 0 = all")
     ap.add_argument("--demo", action="store_true", help="allow a demo (crypto) instrument")
     args = ap.parse_args()
 
@@ -118,6 +113,9 @@ def main():
             f"No bar files in {args.data_dir}/. Build some with:\n"
             f"  python3 bot.py --record --symbol {args.symbol} ...\n"
             f"or drop one CSV per day (time,open,high,low,close,volume) in there.")
+
+    if args.last_days and args.last_days > 0:
+        files = files[-args.last_days:]
 
     days = []
     for path in files:
@@ -147,46 +145,45 @@ def main():
         print(f"  {key:<18}{s['trades']:>7}{ci:>20}{s['net']:>+11.0f}"
               f"{pf:>7}{s['expectancy']:>+8.1f}{-s['max_dd']:>9.0f}{green:>8}")
 
-    # ---- walk-forward / out-of-sample ----
-    print("\n" + line)
-    print("  WALK-FORWARD (out-of-sample) — the honest forward read")
-    print(line)
-    if len(days) < 3:
-        print(f"  Only {len(days)} day(s) of data — too few to split into train/test.")
-        print("  Capture more days (aim for many) before trusting any of this.")
-    else:
-        cut = max(1, round(len(days) * 0.7))
-        train, test = days[:cut], days[cut:]
-        # choose the best strategy on TRAIN by expectancy (avoids overfitting to
-        # one lucky big day)
-        train_stats = {k: evaluate(train, k, spec, args.contracts,
-                                   args.stop_atr, args.target_atr)
-                       for k in strategies.REGISTRY}
-        best = max(train_stats, key=lambda k: train_stats[k]["expectancy"])
-        te = evaluate(test, best, spec, args.contracts, args.stop_atr, args.target_atr)
-        print(f"  Trained on the first {len(train)} day(s), tested on the last {len(test)}.")
-        print(f"  Best strategy on training data : {best} ({strategies.REGISTRY[best].label})")
-        print(f"  On UNSEEN test days it produced :")
-        print(f"     trades         : {te['trades']}")
-        print(f"     win rate       : {te['win_rate']:.0f}%  "
-              f"(95% CI {te['ci_lo']:.0f}-{te['ci_hi']:.0f}%)")
-        print(f"     net P&L        : ${te['net']:+,.0f}")
-        print(f"     days finished green : {te['days_green']} of {te['days']} "
-              f"({(te['days_green']/te['days']*100) if te['days'] else 0:.0f}%)")
-        print(f"     expectancy/trade    : ${te['expectancy']:+.2f}")
+    # ---- recommendation: what worked best over the recorded period ----
+    ranked = sorted(results.items(), key=lambda kv: kv[1]["net"], reverse=True)
+    best_key, best = ranked[0]
+    runner_key, runner = ranked[1] if len(ranked) > 1 else (None, None)
 
     print("\n" + line)
-    print("  HOW TO READ THIS — please don't skip")
+    print(f"  RECOMMENDATION — best over the last {len(days)} recorded day(s)")
     print(line)
-    print("  * The win% CONFIDENCE INTERVAL is the real story. A wide range (e.g.")
-    print("    40-70%) means you don't have enough trades to know anything yet.")
-    print("  * The walk-forward number is the closest honest estimate of forward")
-    print("    odds, because it's measured on days the strategy never trained on.")
-    print("  * It is STILL not a prediction. Markets regime-shift; a strategy can")
-    print("    look great out-of-sample and then lose next week. No percentage here")
-    print("    is a promise about the next day or the next month.")
-    print("  * More days = more trustworthy. A handful of days tells you almost")
-    print("    nothing. Keep recording and re-running this.")
+    if best["net"] <= 0:
+        print("  Nothing was net-profitable on this sample. No strategy to recommend —")
+        print("  don't trade any of these live yet. Record more days and re-run.")
+    else:
+        label = strategies.REGISTRY[best_key].label
+        print(f"  >>> Trade: {best_key}  ({label})")
+        print(f"      net ${best['net']:+,.0f} over {best['days']} days | "
+              f"green {best['days_green']}/{best['days']} days | "
+              f"win {best['win_rate']:.0f}% ({best['ci_lo']:.0f}-{best['ci_hi']:.0f}) | "
+              f"exp ${best['expectancy']:+.2f}/trade")
+        if runner:
+            print(f"      runner-up: {runner_key} ({strategies.REGISTRY[runner_key].label}) "
+                  f"net ${runner['net']:+,.0f}")
+
+        # honest, short flags — only when they matter
+        warnings = []
+        if best["trades"] < 20:
+            warnings.append(f"only {best['trades']} trades — thin sample, treat as tentative")
+        if (best["ci_hi"] - best["ci_lo"]) > 30:
+            warnings.append("wide win-rate range — result is noisy, not yet reliable")
+        if best["days"] < 5:
+            warnings.append(f"only {best['days']} day(s) — capture a fuller week+")
+        if runner and best["net"] > 0 and runner["net"] > 0 and \
+           best["net"] < runner["net"] * 1.25:
+            warnings.append("top two are close — no clear standout")
+        if warnings:
+            print("      caution: " + "; ".join(warnings) + ".")
+    print(line)
+    print("  This is what worked on THIS sample, not a promise about tomorrow.")
+    print("  Re-run as you record more days; if the leader keeps changing, no")
+    print("  strategy has a real edge yet. Sim-trade the pick before going live.")
     print(line)
 
 

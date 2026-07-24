@@ -142,12 +142,14 @@ trading. The terminal alert always fires.
 
 ## Strategies
 
-Four built-in strategies (pick with `--engine`), all in `strategies.py`:
+Six built-in strategies (pick with `--engine`), all in `strategies.py`:
 
 | key | what it does |
 |---|---|
 | `ema_rsi` | trend-follow: fast/slow EMA cross, filtered by RSI (default) |
 | `orb` | opening-range breakout: trade breaks of the first N bars' high/low |
+| `fair_value` | fair-value gap (FVG): trade the direction of a 3-bar imbalance when price returns into it |
+| `support_resistance` | bounce: fade the edges of the recent range (support/resistance) |
 | `vwap_revert` | mean-reversion: fade price when it stretches far from VWAP |
 | `donchian` | breakout: new high/low of the last N bars |
 
@@ -171,13 +173,14 @@ python3 bot.py --record --symbol MES --data-source csv --csv-file bars.csv
 python3 bot.py --backtest --symbol MES --csv-file data/MES_2026-07-24.csv --engine orb
 ```
 
-### 3. Compare all strategies across many days
+### 3. Compare all strategies and get a recommendation
 
-This is the big one. Point it at your `data/` folder and it runs every strategy
-over every saved day:
+Point it at your `data/` folder — it runs every strategy over every saved day,
+ranks them, and **recommends the one that worked best**:
 
 ```bash
-python3 compare.py --data-dir data --symbol MES
+python3 compare.py --data-dir data --symbol MES              # all recorded days
+python3 compare.py --data-dir data --symbol MES --last-days 5  # just the past week
 ```
 
 ```
@@ -185,32 +188,26 @@ python3 compare.py --data-dir data --symbol MES
   ----------------------------------------------------------------------------
   ema_rsi                53         36% (24-49)        -65   0.83    -1.2     -162     1/8
   orb                   153         86% (79-90)      +2455   9.05   +16.0      -95     6/8
+  fair_value             87         74% (63-82)       +949   4.26   +10.9      -70     6/8
   donchian              135         85% (78-90)      +2170   8.68   +16.1     -110     5/8
   ...
-  WALK-FORWARD (out-of-sample) — the honest forward read
-  Trained on the first 6 day(s), tested on the last 2.
-  Best strategy on training data : donchian
-  On UNSEEN test days: win rate 74% (95% CI 57-85%), net $+414, days green 1/2
+  RECOMMENDATION — best over the last 5 recorded day(s)
+  >>> Trade: orb  (Opening-Range Breakout)
+      net $+1,430 over 5 days | green 4/5 days | win 87% (78-92) | exp $+16.07/trade
+      runner-up: donchian net $+1,265
+      caution: top two are close — no clear standout.
 ```
 
-### About "what percentage will work next week"
+The columns, briefly: **net $** is the bottom line, **days+** is how many days
+finished green (consistency), and **win% (95% CI)** shows the win rate *with its
+uncertainty* — a wide range like `40% (24-49)` means too few trades to trust yet.
+The tool flags a pick as tentative when the sample is thin or the top two are
+close.
 
-There is **no honest single number** for that, and this tool won't invent one.
-Here's what it gives instead, and how to read it:
-
-- **Win% with a 95% confidence interval.** The *width* is the point. `50% (20-80)`
-  from a few trades means you know essentially nothing yet. `62% (58-66)` from
-  hundreds of trades means something. Chase narrow intervals, not high midpoints.
-- **% of days finished green** — consistency, not one lucky day.
-- **Walk-forward result** — the strategy is chosen on *older* days and scored on
-  *newer days it never saw*. That out-of-sample number is the **closest honest
-  proxy** for forward odds. It is a proxy, not a promise: markets change regime,
-  and a strategy can look great out-of-sample and still lose next week.
-- **More days = more trust.** A handful of days tells you almost nothing. Keep
-  recording and re-running.
-
-If you remember one thing: a backtest describes the past. It never guarantees
-the next day or the next month.
+One honest line it always prints: *this is what worked on this sample, not a
+promise about tomorrow.* Re-run it as you record more days — if the recommended
+strategy keeps changing, that itself is telling you none has a real edge yet.
+Sim-trade the pick before going live.
 
 ## Config file (skip the long command lines)
 
