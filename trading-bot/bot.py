@@ -457,6 +457,17 @@ def record_mode(args, spec):
         time.sleep(poll)
 
 
+def auto_select(args, spec):
+    """Pick the currently best-ranked strategy over recorded days.
+
+    Returns (best_key or None, best_stats or None, n_days). best_key is None when
+    there's no data or nothing was net-profitable.
+    """
+    import compare  # local import avoids an import cycle (compare imports bot)
+    return compare.pick_best(args.data_dir, args.symbol, spec, args.contracts,
+                             args.stop_atr, args.target_atr, args.last_days)
+
+
 # --------------------------------------------------------------------------
 # Main loop
 # --------------------------------------------------------------------------
@@ -471,8 +482,11 @@ def main():
                     help="coinbase bar size in seconds (demo only)")
     ap.add_argument("--demo", action="store_true",
                     help="allow a non-Lucid demo instrument (required for coinbase)")
-    ap.add_argument("--engine", choices=list(strategies.REGISTRY) + ["llm"],
-                    default="ema_rsi", help="strategy to trade")
+    ap.add_argument("--engine", choices=list(strategies.REGISTRY) + ["llm", "auto"],
+                    default="ema_rsi",
+                    help="strategy to trade; 'auto' = whichever ranks best over recorded days")
+    ap.add_argument("--last-days", type=int, default=0,
+                    help="for --engine auto: rank over the most recent N recorded days (0 = all)")
     ap.add_argument("--model", default="claude-haiku-4-5-20251001")
     ap.add_argument("--config", default="config.json",
                     help="JSON file of default settings (CLI flags override it)")
@@ -526,7 +540,22 @@ def main():
         record_mode(args, spec)
         return
 
-    engine = LLMEngine(model=args.model) if args.engine == "llm" else strategies.build(args.engine)
+    if args.engine == "auto":
+        engine_key, best, ndays = auto_select(args, spec)
+        if engine_key is None:
+            if ndays == 0:
+                sys.exit(f"--engine auto: no usable recorded days in {args.data_dir}/. "
+                         f"Capture some first with:  python3 bot.py --record --symbol {args.symbol} ...")
+            sys.exit(f"--engine auto: nothing was net-profitable over the last {ndays} "
+                     f"day(s), so the bot won't trade. Record more days, or pick a "
+                     f"strategy manually with --engine.")
+        engine = strategies.build(engine_key)
+        print(f"  AUTO-SELECTED: {engine_key} ({strategies.REGISTRY[engine_key].label}) "
+              f"— best over {ndays} day(s), net ${best['net']:+,.0f}")
+    elif args.engine == "llm":
+        engine, engine_key = LLMEngine(model=args.model), "llm"
+    else:
+        engine, engine_key = strategies.build(args.engine), args.engine
 
     # --- backtest mode: run over the saved file and exit ---
     if args.backtest:
@@ -590,6 +619,16 @@ def main():
         today = datetime.now(timezone.utc).date()
         if today != day:
             day, halted = today, False
+            # In auto mode, re-rank each new day so we always run the current best.
+            if args.engine == "auto" and not acct.position:
+                nk, nb, nd = auto_select(args, spec)
+                if nk and nk != engine_key:
+                    engine, engine_key = strategies.build(nk), nk
+                    print(f"[{datetime.now():%H:%M:%S}] AUTO-RESELECT: now trading {nk} "
+                          f"(best over {nd} days, net ${nb['net']:+,.0f})")
+                elif nk is None:
+                    print(f"[{datetime.now():%H:%M:%S}] AUTO-RESELECT: nothing profitable "
+                          f"over {nd} days; keeping {engine_key}")
 
         if newest["time"] != last_bar:
             last_bar = newest["time"]

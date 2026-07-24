@@ -104,7 +104,8 @@ python3 bot.py --demo --data-source coinbase --symbol BTC-USD
 | `--data-source` | `csv` (NinjaTrader bars) or `coinbase` (demo) | `csv` |
 | `--csv-file` | Path NinjaTrader logs bars to | `bars.csv` |
 | `--contracts` | Paper position size in contracts | `1` |
-| `--engine` | `ema_rsi`, `orb`, `vwap_revert`, `donchian`, or `llm` | `ema_rsi` |
+| `--engine` | `ema_rsi`, `orb`, `fair_value`, `support_resistance`, `vwap_revert`, `donchian`, `llm`, or `auto` | `ema_rsi` |
+| `--last-days` | For `auto`: rank over the most recent N recorded days (0 = all) | `0` |
 | `--config` | JSON defaults file (CLI overrides it) | `config.json` |
 | `--record` | Capture bars to `data/<symbol>_<date>.csv`, no trading | off |
 | `--data-dir` | Folder for captured daily bar files | `data` |
@@ -208,6 +209,32 @@ One honest line it always prints: *this is what worked on this sample, not a
 promise about tomorrow.* Re-run it as you record more days — if the recommended
 strategy keeps changing, that itself is telling you none has a real edge yet.
 Sim-trade the pick before going live.
+
+## Auto-pick: let the bot run whatever ranks best
+
+Instead of choosing `--engine` yourself each week, use `--engine auto`. On
+startup (and again at the start of each new day) the bot ranks all strategies
+over your recorded days and trades whichever is best:
+
+```bash
+python3 bot.py --engine auto --symbol MES --data-source csv --csv-file bars.csv
+# rank over just the past week:
+python3 bot.py --engine auto --last-days 5 --symbol MES --csv-file bars.csv
+```
+
+```
+  AUTO-SELECTED: orb (Opening-Range Breakout) — best over 8 day(s), net $+2,455
+```
+
+- It re-ranks at each new day and switches if the leader changed (only while
+  flat, never mid-trade), printing an `AUTO-RESELECT` line.
+- If **nothing** was net-profitable over your recorded days, auto mode **refuses
+  to trade** and tells you so — better to sit out than trade a losing set.
+- It needs recorded history first (`--record`), and the more days the better.
+
+This keeps the pick honest and current, but it's still picking based on the
+past. A strategy that led last week can lag next week — that's why it re-checks
+daily and sits out when nothing works.
 
 ## Config file (skip the long command lines)
 

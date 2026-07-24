@@ -88,6 +88,46 @@ def evaluate(days, engine_key, spec, contracts, stop_atr, target_atr):
     return stats_for(all_trades, day_nets)
 
 
+def gather_days(data_dir, symbol, last_days=0, min_bars=30):
+    """Load daily bar files as a list of candle lists (oldest file first)."""
+    import bot  # local import keeps this usable from bot.py without a cycle
+    files = sorted(glob.glob(os.path.join(data_dir, f"{symbol}_*.csv")))
+    if not files:
+        files = sorted(glob.glob(os.path.join(data_dir, "*.csv")))
+    if last_days and last_days > 0:
+        files = files[-last_days:]
+    days = []
+    for path in files:
+        candles = bot.read_csv_bars(path)
+        if len(candles) >= min_bars:
+            days.append(candles)
+    return days, files
+
+
+def rank(days, spec, contracts, stop_atr, target_atr):
+    """Return (results dict, ranked list) sorted by net P&L, best first."""
+    results = {k: evaluate(days, k, spec, contracts, stop_atr, target_atr)
+               for k in strategies.REGISTRY}
+    ranked = sorted(results.items(), key=lambda kv: kv[1]["net"], reverse=True)
+    return results, ranked
+
+
+def pick_best(data_dir, symbol, spec, contracts, stop_atr, target_atr, last_days=0):
+    """Pick the best net-profitable strategy over recorded days.
+
+    Returns (best_key or None, best_stats or None, n_days). best_key is None when
+    there's no data or nothing was net-profitable (i.e. don't trade).
+    """
+    days, _ = gather_days(data_dir, symbol, last_days)
+    if not days:
+        return None, None, 0
+    _, ranked = rank(days, spec, contracts, stop_atr, target_atr)
+    best_key, best = ranked[0]
+    if best["net"] <= 0:
+        return None, best, len(days)
+    return best_key, best, len(days)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Compare strategies across saved days.")
     ap.add_argument("--data-dir", default="data", help="folder of daily bar CSVs")
@@ -104,26 +144,16 @@ def main():
     if spec is None:
         raise SystemExit(f"Unknown symbol '{args.symbol}'.")
 
-    # gather daily files (prefer ones named for the symbol; else take all)
-    files = sorted(glob.glob(os.path.join(args.data_dir, f"{args.symbol}_*.csv")))
-    if not files:
-        files = sorted(glob.glob(os.path.join(args.data_dir, "*.csv")))
+    days, files = gather_days(args.data_dir, args.symbol, args.last_days)
     if not files:
         raise SystemExit(
             f"No bar files in {args.data_dir}/. Build some with:\n"
             f"  python3 bot.py --record --symbol {args.symbol} ...\n"
             f"or drop one CSV per day (time,open,high,low,close,volume) in there.")
-
-    if args.last_days and args.last_days > 0:
-        files = files[-args.last_days:]
-
-    days = []
-    for path in files:
-        candles = bot.read_csv_bars(path)
-        if len(candles) >= 30:
-            days.append(candles)
     if not days:
         raise SystemExit("Found files but none had >=30 usable bars.")
+
+    results, ranked = rank(days, spec, args.contracts, args.stop_atr, args.target_atr)
 
     line = "=" * 78
     print(line)
@@ -134,11 +164,7 @@ def main():
     print(f"  {'strategy':<18}{'trades':>7}{'win% (95% CI)':>20}"
           f"{'net $':>11}{'PF':>7}{'exp$':>8}{'maxDD':>9}{'days+':>8}")
     print("  " + "-" * 76)
-
-    results = {}
-    for key in strategies.REGISTRY:
-        s = evaluate(days, key, spec, args.contracts, args.stop_atr, args.target_atr)
-        results[key] = s
+    for key, s in ranked:
         pf = "inf" if s["pf"] == float("inf") else f"{s['pf']:.2f}"
         ci = f"{s['win_rate']:.0f}% ({s['ci_lo']:.0f}-{s['ci_hi']:.0f})"
         green = f"{s['days_green']}/{s['days']}"
@@ -146,7 +172,6 @@ def main():
               f"{pf:>7}{s['expectancy']:>+8.1f}{-s['max_dd']:>9.0f}{green:>8}")
 
     # ---- recommendation: what worked best over the recorded period ----
-    ranked = sorted(results.items(), key=lambda kv: kv[1]["net"], reverse=True)
     best_key, best = ranked[0]
     runner_key, runner = ranked[1] if len(ranked) > 1 else (None, None)
 
