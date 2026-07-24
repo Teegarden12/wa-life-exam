@@ -29,7 +29,15 @@ brokerage. You are always the human who decides whether to place a trade.
 
 ## The app (easiest way to use it)
 
-Prefer buttons over the command line? Run the app:
+**One-click:** double-click **`Start-Trading-App.bat`** (Windows) or
+**`Start-Trading-App.command`** (Mac). The app starts and opens in your browser.
+Close the little window it opens to stop it.
+
+First time only: you need **Python** installed once — get it from
+<https://www.python.org/downloads/> and, on Windows, tick *"Add Python to PATH"*
+on the first install screen. After that the launcher just works.
+
+Or, from a terminal:
 
 ```bash
 python3 app.py
