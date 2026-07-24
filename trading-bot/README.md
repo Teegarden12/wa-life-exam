@@ -27,19 +27,40 @@ brokerage. You are always the human who decides whether to place a trade.
 
 ---
 
-## Keeping it to "what Lucid allows"
+## Choosing your instrument
 
-Open **`instruments.py`** and edit the `ALLOWED` set so it lists exactly the
-symbols your Lucid account permits:
+Pick the instrument with **`--symbol`** (or `"symbol"` in `config.json`):
 
-```python
-ALLOWED = {"MES", "MNQ"}      # <-- edit to match your Lucid account
+```bash
+python3 bot.py --symbol MNQ --data-source csv --csv-file bars.csv
 ```
 
-The bot **refuses to trade anything not in `ALLOWED`.** The seeded list is just
-common micros — it is **not** an authoritative statement of what Lucid permits.
-Contract specs for ES/NQ/YM/RTY, their micros, CL, and GC are already defined
-(tick size and tick value) so stops/targets come out in ticks and dollars.
+See every choice and which are currently permitted:
+
+```bash
+python3 bot.py --list-instruments
+```
+```
+  symbol  allowed  tick    $/tick   name
+  MES     yes      0.25    1.25     Micro E-mini S&P 500
+  MNQ     yes      0.25    0.50     Micro E-mini Nasdaq 100
+  ES      -        0.25    12.50    E-mini S&P 500
+  ...
+```
+
+### The allowed-list guardrail
+
+The bot **refuses to trade anything not on your allowed list** — this is what
+keeps it to "what Lucid permits" so you never get a signal you can't mirror. It
+starts as `{MES, MNQ}`. To trade another instrument you have three options:
+
+- **Per run:** `--allow ES` (or `--allow MES,MNQ,ES`)
+- **In config:** `"allow": "MES,MNQ,ES"` in `config.json`
+- **Permanently:** edit `ALLOWED` in `instruments.py`
+
+Only permit instruments Lucid actually lets you trade. Contract specs for
+ES/NQ/YM/RTY, their micros, CL, and GC are already defined (tick size and value)
+so stops/targets always come out in the ticks and dollars you use.
 
 ---
 
@@ -100,7 +121,9 @@ python3 bot.py --demo --data-source coinbase --symbol BTC-USD
 
 | Option | Meaning | Default |
 |---|---|---|
-| `--symbol` | Instrument (must be in `ALLOWED`) | `MES` |
+| `--symbol` | Instrument to trade (must be allowed) | `MES` |
+| `--allow` | Comma-separated instruments to permit this run | off |
+| `--list-instruments` | Show all instruments and which are allowed, then exit | off |
 | `--data-source` | `csv` (NinjaTrader bars) or `coinbase` (demo) | `csv` |
 | `--csv-file` | Path NinjaTrader logs bars to | `bars.csv` |
 | `--contracts` | Paper position size in contracts | `1` |

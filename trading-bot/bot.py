@@ -457,6 +457,26 @@ def record_mode(args, spec):
         time.sleep(poll)
 
 
+def list_instruments():
+    """Print the tradable instruments, marking which are currently allowed."""
+    print("=" * 60)
+    print("  INSTRUMENTS — pick one with  --symbol <SYM>")
+    print("=" * 60)
+    print(f"  {'symbol':<8}{'allowed':<9}{'tick':<8}{'$/tick':<9}name")
+    print("  " + "-" * 56)
+    for sym in sorted(instruments.FUTURES):
+        s = instruments.FUTURES[sym]
+        mark = "yes" if sym in instruments.ALLOWED else "-"
+        print(f"  {sym:<8}{mark:<9}{s['tick_size']:<8}{s['tick_value']:<9.2f}{s['name']}")
+    print("  " + "-" * 56)
+    print(f"  Allowed now: {', '.join(sorted(instruments.ALLOWED)) or '(none)'}")
+    print("  To trade one that shows '-', add it to ALLOWED in instruments.py or")
+    print("  run with  --allow <SYM>  — only if Lucid permits that instrument.")
+    print(f"  Demo (NOT Lucid-tradable, needs --demo): "
+          f"{', '.join(sorted(instruments.DEMO))}")
+    print("=" * 60)
+
+
 def auto_select(args, spec):
     """Pick the currently best-ranked strategy over recorded days.
 
@@ -510,6 +530,11 @@ def main():
                     help="capture bars to data/<symbol>_<date>.csv (no trading); build history")
     ap.add_argument("--data-dir", default="data",
                     help="folder for captured daily bar files (used by --record and compare.py)")
+    ap.add_argument("--allow", default=None,
+                    help="comma-separated instruments to permit, e.g. MES,MNQ,ES "
+                         "(overrides the ALLOWED list in instruments.py for this run)")
+    ap.add_argument("--list-instruments", action="store_true",
+                    help="print the instruments you can trade (and which are allowed), then exit")
 
     # Load defaults from a config file first, so CLI flags still override them.
     pre, _ = ap.parse_known_args()
@@ -518,6 +543,16 @@ def main():
         ap.set_defaults(**cfg)
     args = ap.parse_args()
 
+    # Optional per-run override of which instruments are permitted (so you don't
+    # have to edit instruments.py). Accepts a comma string or a list (config).
+    if args.allow:
+        syms = args.allow if isinstance(args.allow, list) else str(args.allow).split(",")
+        instruments.ALLOWED = {s.strip().upper() for s in syms if s.strip()}
+
+    if args.list_instruments:
+        list_instruments()
+        return
+
     # --- enforce "only what Lucid allows" ---
     spec = instruments.get_spec(args.symbol, demo=args.demo)
     if spec is None:
@@ -525,12 +560,15 @@ def main():
             sys.exit(f"'{args.symbol}' is a crypto DEMO instrument, not tradable in Lucid. "
                      f"Add --demo to watch it, or pick a futures symbol.")
         sys.exit(f"ERROR: unknown symbol '{args.symbol}'. "
-                 f"Known futures: {', '.join(sorted(instruments.FUTURES))}.")
+                 f"Known futures: {', '.join(sorted(instruments.FUTURES))}.\n"
+                 f"  See them with:  python3 bot.py --list-instruments")
     if not instruments.is_allowed(args.symbol, demo=args.demo):
         sys.exit(
             f"REFUSING to trade '{args.symbol}': it is not in your allowed list.\n"
-            f"  Allowed right now: {', '.join(sorted(instruments.ALLOWED))}\n"
-            f"  If Lucid lets you trade {args.symbol}, add it to ALLOWED in instruments.py.\n"
+            f"  Allowed right now: {', '.join(sorted(instruments.ALLOWED)) or '(none)'}\n"
+            f"  To permit it, either add it to ALLOWED in instruments.py, or run with\n"
+            f"    --allow {args.symbol}   (or --allow MES,MNQ,{args.symbol})\n"
+            f"  only if Lucid actually lets you trade {args.symbol}.\n"
             f"  (Crypto/demo instruments require the --demo flag and are NOT Lucid-tradable.)")
     if args.data_source == "coinbase" and not args.demo:
         sys.exit("ERROR: the coinbase feed is crypto (DEMO ONLY). Add --demo to use it, "

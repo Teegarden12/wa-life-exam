@@ -1,5 +1,6 @@
 {
   "symbol": "MES",
+  "allow": "MES,MNQ",
   "data-source": "csv",
   "csv-file": "C:\\paper-bot\\bars.csv",
   "engine": "ema_rsi",
