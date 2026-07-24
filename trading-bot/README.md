@@ -57,6 +57,43 @@ Everything the command-line tool does, with nothing to type. It's the same
 engine underneath, so all the same caveats apply: fake money, mirror in Lucid by
 hand, no guaranteed edge.
 
+## From your phone (at work during market hours)
+
+First, the honest constraint: **your PC has to stay on and running NinjaTrader +
+this app during market hours.** NinjaTrader is the only source of your live
+futures data and it's Windows desktop software — the phone can't be the data
+source. So the setup is: PC does the work at home, phone receives the signal,
+and *you place the trade in your broker's mobile app* (whatever Lucid uses).
+
+The best phone experience is **push notifications**, not watching a screen:
+
+### Step 1 — get signals pushed to your phone (do this first)
+
+1. Install the free **ntfy** app (iOS/Android) and subscribe to a topic name —
+   pick something long and unguessable, e.g. `lucid-mes-7fx93k`.
+2. In `config.json` set `"ntfy-topic": "lucid-mes-7fx93k"` and `"autostart": true`.
+3. Double-click the launcher on your PC in the morning. It starts trading and,
+   on every entry/exit, your phone buzzes with the trade to mirror:
+   *"LONG 2× MES @ 5043 · stop 5039.75 · target 5047.25."*
+4. You open your Lucid/broker mobile app and place that trade by hand.
+
+That's it — you don't need to open the dashboard at all. The PC runs all day and
+your phone just tells you when to act.
+
+### Step 2 (optional) — open the live dashboard from your phone
+
+If you also want to see the dashboard (P&L, feed, run a compare) from anywhere,
+the safe way is **Tailscale** (a free private network for your own devices):
+
+1. Install Tailscale on both your PC and your phone, sign in to the same account.
+2. In `config.json` set `"host": "0.0.0.0"` and a `"token"` (any long secret).
+3. Note your PC's Tailscale IP (looks like `100.x.y.z`).
+4. On your phone open `http://100.x.y.z:8787/?token=YOUR_TOKEN`.
+
+Only your own logged-in devices can reach it, and the token is a second lock.
+**Don't** just forward a port on your router — that exposes the app to the whole
+internet. If you skip Tailscale, at minimum always set a `token`.
+
 ## Choosing your instrument
 
 Pick the instrument with **`--symbol`** (or `"symbol"` in `config.json`):

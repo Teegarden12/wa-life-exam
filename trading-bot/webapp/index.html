@@ -153,8 +153,15 @@
 const $ = id => document.getElementById(id);
 function fmt(n, d=2){ return (n==null||isNaN(n)) ? "—" : Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d}); }
 
+// carry an access token (if the server requires one) on every request
+const TOKEN = new URLSearchParams(location.search).get('token');
+function api(path, opts={}){
+  opts.headers = Object.assign({}, opts.headers, TOKEN ? {'X-Token': TOKEN} : {});
+  return fetch(path, opts);
+}
+
 async function loadMeta(){
-  const m = await (await fetch('/api/meta')).json();
+  const m = await (await api('/api/meta')).json();
   $('symbol').innerHTML = m.instruments.map(i=>`<option value="${i.symbol}">${i.symbol} — ${i.name}${i.allowed?'':' (not allowed)'}</option>`).join('');
   $('engine').innerHTML = m.strategies.map(s=>`<option value="${s.key}">${s.label}</option>`).join('');
   $('allow').value = m.allowed.join(',');
@@ -174,10 +181,10 @@ function cfg(){
 }
 
 async function start(){
-  const r = await (await fetch('/api/start',{method:'POST',body:JSON.stringify(cfg())})).json();
+  const r = await (await api('/api/start',{method:'POST',body:JSON.stringify(cfg())})).json();
   if(!r.ok){ alert(r.error||'could not start'); }
 }
-async function stop(){ await fetch('/api/stop',{method:'POST'}); }
+async function stop(){ await api('/api/stop',{method:'POST'}); }
 
 function tab(which, btn){
   $('bt').classList.toggle('hidden', which!=='bt');
@@ -188,7 +195,7 @@ function tab(which, btn){
 
 async function backtest(){
   $('btOut').innerHTML = '<div class="note">running…</div>';
-  const r = await (await fetch('/api/backtest',{method:'POST',body:JSON.stringify(cfg())})).json();
+  const r = await (await api('/api/backtest',{method:'POST',body:JSON.stringify(cfg())})).json();
   if(!r.ok){ $('btOut').innerHTML = `<div class="note">${r.error}</div>`; return; }
   const pf = r.pf===null||r.pf===Infinity?'∞':fmt(r.pf,2);
   $('btOut').innerHTML = `<table>
@@ -203,7 +210,7 @@ async function backtest(){
 
 async function compareRun(){
   $('cmpOut').innerHTML = '<div class="note">running…</div>';
-  const r = await (await fetch('/api/compare',{method:'POST',body:JSON.stringify(cfg())})).json();
+  const r = await (await api('/api/compare',{method:'POST',body:JSON.stringify(cfg())})).json();
   if(!r.ok){ $('cmpOut').innerHTML = `<div class="note">${r.error}</div>`; return; }
   let rows = r.rows.map((s,i)=>`<tr class="${i===0&&s.net>0?'best':''}">
     <td>${s.label}</td><td>${s.trades}</td>
@@ -235,7 +242,7 @@ function renderFeed(alerts){
 
 async function poll(){
   try{
-    const {state:s, alerts} = await (await fetch('/api/status')).json();
+    const {state:s, alerts} = await (await api('/api/status')).json();
     $('statusPill').textContent = s.running ? ('live · '+(s.engine||'')) : 'stopped';
     $('statusPill').className = 'pill'+(s.running?' live':'');
     $('startBtn').classList.toggle('hidden', s.running);

@@ -9,7 +9,13 @@
   "target-atr": 2.0,
   "max-daily-loss": 200,
   "data-dir": "data",
-  "desktop": true,
-  "ntfy-topic": null,
-  "webhook-url": null
+  "desktop": false,
+  "ntfy-topic": "change-me-to-something-long-and-unguessable",
+  "webhook-url": null,
+
+  "_phone_setup": "The four keys below turn on the phone-friendly mode.",
+  "autostart": true,
+  "host": "127.0.0.1",
+  "port": 8787,
+  "token": null
 }

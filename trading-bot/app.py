@@ -8,13 +8,15 @@ account, and mirror-alerts — no command line needed.
 
     python3 app.py
 
-It serves ONLY on 127.0.0.1 (your machine); nothing is exposed to the network,
-and nothing ever touches a real brokerage account. You still mirror trades in
-Lucid by hand.
+By default it serves on 127.0.0.1 (this machine only). To reach it from your
+phone, run with --host 0.0.0.0 and a --token, ideally over Tailscale so only
+your own devices can connect (see the README "From your phone" section).
 
-Standard-library only — no packages to install.
+Nothing ever touches a real brokerage account — you still mirror trades in Lucid
+by hand. Standard-library only, no packages to install.
 """
 
+import argparse
 import json
 import os
 import threading
@@ -23,6 +25,7 @@ import urllib.error
 import webbrowser
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
 
 import bot
 import compare
@@ -31,6 +34,7 @@ import strategies
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOST, PORT = "127.0.0.1", 8787
+TOKEN = None  # when set, every request must supply it (?token= or X-Token header)
 
 
 # --------------------------------------------------------------------------
@@ -240,7 +244,22 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return {}
 
+    def _authed(self):
+        """When a token is configured, require it (query ?token= or X-Token)."""
+        if not TOKEN:
+            return True
+        if self.headers.get("X-Token") == TOKEN:
+            return True
+        q = parse_qs(urlparse(self.path).query)
+        return q.get("token", [None])[0] == TOKEN
+
     def do_GET(self):
+        if not self._authed():
+            return self.send_error(401, "missing or bad token")
+        route = urlparse(self.path).path
+        if route in ("/", "/index.html"):
+            return self._serve_file("index.html", "text/html; charset=utf-8")
+        self.path = route  # strip query for the checks below
         if self.path in ("/", "/index.html"):
             return self._serve_file("index.html", "text/html; charset=utf-8")
         if self.path == "/api/meta":
@@ -259,6 +278,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self):
+        if not self._authed():
+            return self.send_error(401, "missing or bad token")
+        self.path = urlparse(self.path).path
         cfg = self._read_json()
         try:
             if self.path == "/api/start":
@@ -336,19 +358,51 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    global HOST, PORT, TOKEN
+    ap = argparse.ArgumentParser(description="Paper trading bot — browser app.")
+    ap.add_argument("--host", default=None,
+                    help="interface to bind (default 127.0.0.1 = this PC only; "
+                         "use 0.0.0.0 to reach it from your phone over Tailscale/LAN)")
+    ap.add_argument("--port", type=int, default=None)
+    ap.add_argument("--token", default=None,
+                    help="require this secret to access the app (recommended when host is not localhost)")
+    ap.add_argument("--autostart", action="store_true",
+                    help="start trading immediately using config.json (no need to press Start)")
+    ap.add_argument("--config", default="config.json")
+    args = ap.parse_args()
+
+    cfg = bot.load_config(args.config)
+    HOST = args.host or cfg.get("host") or "127.0.0.1"
+    PORT = args.port or int(cfg.get("port") or 8787)
+    TOKEN = args.token or cfg.get("token") or None
+    autostart = args.autostart or bool(cfg.get("autostart"))
+
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    url = f"http://{HOST}:{PORT}/"
-    print("=" * 60)
-    print("  PAPER TRADING BOT — desktop app")
+    shown = "127.0.0.1" if HOST in ("127.0.0.1", "localhost") else HOST
+    suffix = f"?token={TOKEN}" if TOKEN else ""
+    url = f"http://{shown}:{PORT}/{suffix}"
+    print("=" * 64)
+    print("  PAPER TRADING BOT — app")
     print(f"  Open:  {url}")
-    print("  (serving on localhost only; nothing is exposed to the network)")
+    if HOST in ("127.0.0.1", "localhost"):
+        print("  (this PC only — add --host 0.0.0.0 to reach it from your phone)")
+    else:
+        print(f"  Reachable from other devices on this host/IP: {HOST}")
+        if not TOKEN:
+            print("  WARNING: no --token set. Anyone who can reach this address can")
+            print("           control the app. Set --token, or use Tailscale so only")
+            print("           your own devices can connect.")
+    if autostart:
+        r = RUNNER.start(cfg)
+        print(f"  Autostart: {'trading started from config.json' if r.get('ok') else r.get('error')}")
     print("  FAKE money. Mirror trades in Lucid by hand, at your own risk.")
     print("  Press Ctrl+C here to quit.")
-    print("=" * 60)
-    try:
-        webbrowser.open(url)
-    except Exception:
-        pass
+    print("=" * 64)
+    if HOST in ("127.0.0.1", "localhost"):
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
     try:
         server.serve_forever()
     except KeyboardInterrupt:
