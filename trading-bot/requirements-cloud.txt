@@ -1,0 +1,4 @@
+# Only needed on the cloud server for the Tradovate data feed.
+# The bot/app themselves need nothing (standard library only).
+requests
+websocket-client

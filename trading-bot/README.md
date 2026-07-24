@@ -80,6 +80,18 @@ The best phone experience is **push notifications**, not watching a screen:
 That's it — you don't need to open the dashboard at all. The PC runs all day and
 your phone just tells you when to act.
 
+### Fully PC-free (no PC at all)
+
+The steps above still need your PC running NinjaTrader for the data. To drop the
+PC entirely, run the bot on a small always-on cloud server (or a Raspberry Pi)
+that pulls your real futures data straight from **Tradovate's API** — no
+NinjaTrader. Full walkthrough in **[DEPLOY.md](DEPLOY.md)**.
+
+Two things gate this, so check them first: your Lucid account must **permit API
+access** (many prop/eval accounts don't — ask their support), and you need a
+**real-time data subscription** on Tradovate. See DEPLOY.md for the honest
+details.
+
 ### Step 2 (optional) — open the live dashboard from your phone
 
 If you also want to see the dashboard (P&L, feed, run a compare) from anywhere,
