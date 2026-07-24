@@ -108,7 +108,59 @@ python3 bot.py --demo --data-source coinbase --symbol BTC-USD
 | `--stop-atr` / `--target-atr` | Stop/target = N × ATR | `1.5` / `2.0` |
 | `--max-daily-loss` | Halt new trades after this paper $ loss/day | `0` (off) |
 | `--demo` | Allow a non-Lucid demo instrument | off |
+| `--desktop` | Desktop pop-up on each alert | off |
+| `--ntfy-topic` | Phone push via ntfy.sh/&lt;topic&gt; | off |
+| `--webhook-url` | POST alerts as JSON to a URL | off |
+| `--backtest` | Run over `--csv-file` and print stats, then exit | off |
 | `--log` | Trade-log CSV path | `trades.csv` |
+
+## Get alerts on your phone or desktop
+
+By default alerts print to the terminal (with a bell). Turn on any of these to be
+notified when you're not staring at the window — all optional, mix and match:
+
+```bash
+# Desktop pop-up on the machine running the bot
+python3 bot.py --data-source csv --symbol MES --csv-file bars.csv --desktop
+
+# Push to your PHONE via ntfy (free, no account):
+#   1. Install the "ntfy" app (iOS/Android).
+#   2. Subscribe to a topic name — pick something long and unguessable,
+#      e.g. lucid-mes-9f3k2. Anyone who knows the topic can read your alerts.
+#   3. Pass it here:
+python3 bot.py ... --ntfy-topic lucid-mes-9f3k2
+
+# POST alerts as JSON to any URL (Discord/Slack webhook, your own service)
+python3 bot.py ... --webhook-url https://discord.com/api/webhooks/....
+```
+
+Notifications are best-effort: if a channel is down the bot logs a line and keeps
+trading. The terminal alert always fires.
+
+## Backtest before you trade live
+
+Run the strategy over a **saved** bar file to see how it would have done — no
+waiting, no live feed. Save a session of bars (the BarLogger CSV works, or export
+from NinjaTrader), then:
+
+```bash
+python3 bot.py --backtest --symbol MES --csv-file saved_day.csv
+```
+
+You'll get a summary:
+
+```
+  Trades taken        : 5
+  Wins / Losses       : 2 / 3  (40.0% win rate)
+  Net P&L             : $-2.50
+  Profit factor       : 0.94  (>1 = profitable on this data)
+  Max drawdown        : -$40.00
+  Worst losing streak : 3
+```
+
+**A good backtest is not a promise.** Short samples overfit, and past results
+don't predict the future. Use it to sanity-check and compare settings
+(`--stop-atr`, `--target-atr`, `--engine`), not as proof it'll make money.
 
 ## Optional: let Claude make each decision
 

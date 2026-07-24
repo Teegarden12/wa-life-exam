@@ -46,6 +46,7 @@ import urllib.error
 from datetime import datetime, timezone
 
 import instruments
+import notify
 
 
 # --------------------------------------------------------------------------
@@ -318,7 +319,8 @@ class PaperAccount:
 # --------------------------------------------------------------------------
 
 def alert(kind, symbol, spec, contracts, side, price,
-          stop=None, target=None, reason="", pnl=None):
+          stop=None, target=None, reason="", pnl=None, notifier=None):
+    """Print a boxed alert and push it to any enabled notification channels."""
     ts = datetime.now().strftime("%H:%M:%S")
     line = "=" * 64
     print(f"\n\a{line}")
@@ -332,12 +334,136 @@ def alert(kind, symbol, spec, contracts, side, price,
         print(f"      target {target:,.4f}   ({reward_ticks} ticks, +${reward_usd:,.2f})")
         print(f"      why: {reason}")
         print(f"      ACTION: mirror this {side} of {contracts} {symbol} in Lucid if you agree.")
+        title = f"{side} {contracts}x {symbol} @ {price:,.4f}"
+        body = (f"stop {stop:,.4f} ({risk_ticks}t/-${risk_usd:,.0f}) | "
+                f"target {target:,.4f} ({reward_ticks}t/+${reward_usd:,.0f})\n{reason}")
+        urgent = True
     else:
         tag = "PROFIT" if pnl >= 0 else "LOSS"
         print(f"  <<< CLOSE {side} {contracts}x {symbol} @ {price:,.4f}   [{ts}]  ({tag} {pnl:+,.2f} USD)")
         print(f"      why: {reason}")
         print(f"      ACTION: close your real {symbol} position in Lucid now.")
+        title = f"CLOSE {side} {contracts}x {symbol} ({tag} {pnl:+,.2f})"
+        body = f"exit @ {price:,.4f} — {reason}. Close your Lucid position."
+        urgent = True
     print(line)
+    if notifier and notifier.any_enabled:
+        notifier.send(title, body, urgent=urgent)
+
+
+# --------------------------------------------------------------------------
+# Shared per-bar processing (used by both live loop and backtest)
+# --------------------------------------------------------------------------
+
+def process_bar(acct, engine, closed, symbol, spec, contracts, halted,
+                max_daily_loss, emit):
+    """Run one bar's worth of decision + trade management.
+
+    `emit(kind, side, price, **kw)` is the callback that surfaces ENTRY/EXIT
+    events (alerts+notifications live; nothing in backtest). Returns
+    (decision, why, halted).
+    """
+    newest = closed[-1]
+
+    # 1) manage an open position against this freshly closed bar
+    if acct.position:
+        ex = acct.check_exit(newest)
+        if ex:
+            price, reason = ex
+            side = acct.position["side"]
+            pnl = acct.close(price, reason)
+            emit("EXIT", side, price, reason=reason, pnl=pnl)
+            if max_daily_loss > 0 and acct.realized <= -abs(max_daily_loss):
+                halted = True
+
+    # 2) ask the engine and act
+    decision, why, atr_val = engine.decide(closed)
+    price = newest["close"]
+
+    if acct.position:
+        if (acct.position["side"] == "LONG" and decision == "SHORT") or \
+           (acct.position["side"] == "SHORT" and decision == "LONG"):
+            side = acct.position["side"]
+            pnl = acct.close(price, "engine reversed")
+            emit("EXIT", side, price, reason="signal reversed", pnl=pnl)
+    if not acct.position and not halted and decision in ("LONG", "SHORT"):
+        pos = acct.open(decision, price, atr_val, why)
+        if pos:
+            emit("ENTRY", decision, price, stop=pos["stop"],
+                 target=pos["target"], reason=why)
+
+    return decision, why, halted
+
+
+# --------------------------------------------------------------------------
+# Backtest — run the strategy over a saved bar file, print stats
+# --------------------------------------------------------------------------
+
+def backtest(candles, engine, spec, contracts, symbol, stop_atr, target_atr,
+             log_path):
+    if len(candles) < 30:
+        sys.exit(f"Need at least ~30 bars to backtest; got {len(candles)}.")
+    acct = PaperAccount(spec, contracts, stop_atr, target_atr, log_path)
+    pnls = []
+
+    def collect(kind, side, price, **kw):
+        if kind == "EXIT":
+            pnls.append(kw["pnl"])
+
+    # Feed bars one at a time, exactly like the live loop sees them grow.
+    for i in range(2, len(candles) + 1):
+        window = candles[:i]
+        process_bar(acct, engine, window, symbol, spec, contracts,
+                    halted=False, max_daily_loss=0, emit=collect)
+
+    # Close any still-open position at the last price so P&L is complete.
+    if acct.position:
+        acct.close(candles[-1]["close"], "backtest end")
+        pnls.append(acct.realized - sum(pnls))
+
+    # --- stats ---
+    n = len(pnls)
+    wins = [p for p in pnls if p >= 0]
+    losses = [p for p in pnls if p < 0]
+    gross_win = sum(wins)
+    gross_loss = -sum(losses)
+    net = sum(pnls)
+    pf = (gross_win / gross_loss) if gross_loss > 0 else float("inf")
+    win_rate = (len(wins) / n * 100) if n else 0.0
+
+    # max drawdown on the equity curve
+    equity, peak, max_dd = 0.0, 0.0, 0.0
+    for p in pnls:
+        equity += p
+        peak = max(peak, equity)
+        max_dd = max(max_dd, peak - equity)
+
+    # worst losing streak
+    streak = worst_streak = 0
+    for p in pnls:
+        streak = streak + 1 if p < 0 else 0
+        worst_streak = max(worst_streak, streak)
+
+    line = "=" * 64
+    print(f"\n{line}")
+    print(f"  BACKTEST — {symbol} ({spec['name']})  x{contracts}  engine={engine.name}")
+    print(f"  {len(candles)} bars, stop={stop_atr}xATR target={target_atr}xATR")
+    print(line)
+    print(f"  Trades taken        : {n}")
+    print(f"  Wins / Losses       : {len(wins)} / {len(losses)}  ({win_rate:.1f}% win rate)")
+    print(f"  Net P&L             : ${net:+,.2f}")
+    print(f"  Gross win / loss    : ${gross_win:,.2f} / -${gross_loss:,.2f}")
+    print(f"  Profit factor       : {pf:.2f}"
+          + ("  (>1 = profitable on this data)" if pf != float("inf") else ""))
+    print(f"  Avg win / avg loss  : ${(gross_win/len(wins)) if wins else 0:,.2f}"
+          f" / -${(gross_loss/len(losses)) if losses else 0:,.2f}")
+    print(f"  Max drawdown        : -${max_dd:,.2f}")
+    print(f"  Worst losing streak : {worst_streak}")
+    print(line)
+    print("  Reminder: good backtest numbers do NOT mean future profit. A short")
+    print("  sample overfits easily. This is a sanity check, not a guarantee.")
+    print(line)
+    print(f"  Full trade log written to {log_path}")
 
 
 # --------------------------------------------------------------------------
@@ -363,6 +489,15 @@ def main():
                     help="halt new trades after this paper $ loss/day (0 = off)")
     ap.add_argument("--poll", type=float, default=5.0, help="seconds between checks (csv)")
     ap.add_argument("--log", default="trades.csv", help="trade-log CSV path")
+    # notifications (all optional)
+    ap.add_argument("--desktop", action="store_true", help="pop a desktop notification on each alert")
+    ap.add_argument("--ntfy-topic", default=None,
+                    help="push alerts to your phone via ntfy.sh/<topic> (install the ntfy app)")
+    ap.add_argument("--webhook-url", default=None,
+                    help="POST alerts as JSON to a URL (Discord/Slack/custom)")
+    # backtest
+    ap.add_argument("--backtest", action="store_true",
+                    help="run over a saved bar file (--csv-file) and print stats, then exit")
     args = ap.parse_args()
 
     # --- enforce "only what Lucid allows" ---
@@ -384,7 +519,20 @@ def main():
                  "or use --data-source csv with a Lucid instrument.")
 
     engine = RuleEngine() if args.engine == "rule" else LLMEngine(model=args.model)
+
+    # --- backtest mode: run over the saved file and exit ---
+    if args.backtest:
+        candles = read_csv_bars(args.csv_file)
+        if not candles:
+            sys.exit(f"No bars found in {args.csv_file}. Point --csv-file at a saved "
+                     f"bar file (time,open,high,low,close,volume).")
+        backtest(candles, engine, spec, args.contracts, args.symbol,
+                 args.stop_atr, args.target_atr, args.log)
+        return
+
     acct = PaperAccount(spec, args.contracts, args.stop_atr, args.target_atr, args.log)
+    notifier = notify.Notifier(use_desktop=args.desktop, ntfy_topic=args.ntfy_topic,
+                               webhook_url=args.webhook_url)
     poll = max(args.granularity, 15) if args.data_source == "coinbase" else max(args.poll, 1)
 
     print("=" * 64)
@@ -394,9 +542,17 @@ def main():
           f"stop={args.stop_atr}xATR  target={args.target_atr}xATR")
     if args.demo:
         print("  *** DEMO instrument — NOT tradable in Lucid. For watching only. ***")
+    channels = [c for c, on in [("desktop", args.desktop), ("ntfy", args.ntfy_topic),
+                                 ("webhook", args.webhook_url)] if on]
+    if channels:
+        print(f"  notifications: {', '.join(channels)}")
     print("  FAKE money. Mirror in your real Lucid account manually, at your own")
     print("  risk. Ctrl+C to stop.")
     print("=" * 64)
+
+    def emit(kind, side, price, **kw):
+        alert(kind, args.symbol, spec, args.contracts, side, price,
+              notifier=notifier, **kw)
 
     last_bar = None
     day = datetime.now(timezone.utc).date()
@@ -429,35 +585,14 @@ def main():
 
         if newest["time"] != last_bar:
             last_bar = newest["time"]
-
-            if acct.position:
-                ex = acct.check_exit(newest)
-                if ex:
-                    price, reason = ex
-                    side = acct.position["side"]
-                    pnl = acct.close(price, reason)
-                    alert("EXIT", args.symbol, spec, args.contracts, side, price,
-                          reason=reason, pnl=pnl)
-                    if args.max_daily_loss > 0 and acct.realized <= -abs(args.max_daily_loss):
-                        halted = True
-                        print(f"\n*** Daily loss limit hit ({acct.realized:+.2f}). "
-                              f"No new trades until tomorrow (UTC). ***")
-
-            decision, why, atr_val = engine.decide(closed)
+            was_halted = halted
+            decision, why, halted = process_bar(
+                acct, engine, closed, args.symbol, spec, args.contracts,
+                halted, args.max_daily_loss, emit)
             price = newest["close"]
-
-            if acct.position:
-                if (acct.position["side"] == "LONG" and decision == "SHORT") or \
-                   (acct.position["side"] == "SHORT" and decision == "LONG"):
-                    side = acct.position["side"]
-                    pnl = acct.close(price, "engine reversed")
-                    alert("EXIT", args.symbol, spec, args.contracts, side, price,
-                          reason="signal reversed", pnl=pnl)
-            if not acct.position and not halted and decision in ("LONG", "SHORT"):
-                pos = acct.open(decision, price, atr_val, why)
-                if pos:
-                    alert("ENTRY", args.symbol, spec, args.contracts, decision, price,
-                          stop=pos["stop"], target=pos["target"], reason=why)
+            if halted and not was_halted:
+                print(f"\n*** Daily loss limit hit ({acct.realized:+.2f}). "
+                      f"No new trades until tomorrow (UTC). ***")
 
             total = acct.wins + acct.losses
             wr = (acct.wins / total * 100) if total else 0.0
