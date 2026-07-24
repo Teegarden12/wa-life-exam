@@ -104,7 +104,10 @@ python3 bot.py --demo --data-source coinbase --symbol BTC-USD
 | `--data-source` | `csv` (NinjaTrader bars) or `coinbase` (demo) | `csv` |
 | `--csv-file` | Path NinjaTrader logs bars to | `bars.csv` |
 | `--contracts` | Paper position size in contracts | `1` |
-| `--engine` | `rule` (built-in) or `llm` (Claude decides) | `rule` |
+| `--engine` | `ema_rsi`, `orb`, `vwap_revert`, `donchian`, or `llm` | `ema_rsi` |
+| `--config` | JSON defaults file (CLI overrides it) | `config.json` |
+| `--record` | Capture bars to `data/<symbol>_<date>.csv`, no trading | off |
+| `--data-dir` | Folder for captured daily bar files | `data` |
 | `--stop-atr` / `--target-atr` | Stop/target = N × ATR | `1.5` / `2.0` |
 | `--max-daily-loss` | Halt new trades after this paper $ loss/day | `0` (off) |
 | `--demo` | Allow a non-Lucid demo instrument | off |
@@ -137,30 +140,90 @@ python3 bot.py ... --webhook-url https://discord.com/api/webhooks/....
 Notifications are best-effort: if a channel is down the bot logs a line and keeps
 trading. The terminal alert always fires.
 
-## Backtest before you trade live
+## Strategies
 
-Run the strategy over a **saved** bar file to see how it would have done — no
-waiting, no live feed. Save a session of bars (the BarLogger CSV works, or export
-from NinjaTrader), then:
+Four built-in strategies (pick with `--engine`), all in `strategies.py`:
+
+| key | what it does |
+|---|---|
+| `ema_rsi` | trend-follow: fast/slow EMA cross, filtered by RSI (default) |
+| `orb` | opening-range breakout: trade breaks of the first N bars' high/low |
+| `vwap_revert` | mean-reversion: fade price when it stretches far from VWAP |
+| `donchian` | breakout: new high/low of the last N bars |
+
+Add your own by writing a class with a `decide(candles)` method and registering
+it in `REGISTRY`.
+
+## Capture days, then backtest and compare
+
+### 1. Record a day of bars
+
+Leave this running through a session to save bars to `data/<symbol>_<date>.csv`
+(rolls to a new file each day). Point it at your NinjaTrader feed:
 
 ```bash
-python3 bot.py --backtest --symbol MES --csv-file saved_day.csv
+python3 bot.py --record --symbol MES --data-source csv --csv-file bars.csv
 ```
 
-You'll get a summary:
+### 2. Backtest one strategy on one day
 
-```
-  Trades taken        : 5
-  Wins / Losses       : 2 / 3  (40.0% win rate)
-  Net P&L             : $-2.50
-  Profit factor       : 0.94  (>1 = profitable on this data)
-  Max drawdown        : -$40.00
-  Worst losing streak : 3
+```bash
+python3 bot.py --backtest --symbol MES --csv-file data/MES_2026-07-24.csv --engine orb
 ```
 
-**A good backtest is not a promise.** Short samples overfit, and past results
-don't predict the future. Use it to sanity-check and compare settings
-(`--stop-atr`, `--target-atr`, `--engine`), not as proof it'll make money.
+### 3. Compare all strategies across many days
+
+This is the big one. Point it at your `data/` folder and it runs every strategy
+over every saved day:
+
+```bash
+python3 compare.py --data-dir data --symbol MES
+```
+
+```
+  strategy           trades       win% (95% CI)      net $     PF    exp$    maxDD   days+
+  ----------------------------------------------------------------------------
+  ema_rsi                53         36% (24-49)        -65   0.83    -1.2     -162     1/8
+  orb                   153         86% (79-90)      +2455   9.05   +16.0      -95     6/8
+  donchian              135         85% (78-90)      +2170   8.68   +16.1     -110     5/8
+  ...
+  WALK-FORWARD (out-of-sample) — the honest forward read
+  Trained on the first 6 day(s), tested on the last 2.
+  Best strategy on training data : donchian
+  On UNSEEN test days: win rate 74% (95% CI 57-85%), net $+414, days green 1/2
+```
+
+### About "what percentage will work next week"
+
+There is **no honest single number** for that, and this tool won't invent one.
+Here's what it gives instead, and how to read it:
+
+- **Win% with a 95% confidence interval.** The *width* is the point. `50% (20-80)`
+  from a few trades means you know essentially nothing yet. `62% (58-66)` from
+  hundreds of trades means something. Chase narrow intervals, not high midpoints.
+- **% of days finished green** — consistency, not one lucky day.
+- **Walk-forward result** — the strategy is chosen on *older* days and scored on
+  *newer days it never saw*. That out-of-sample number is the **closest honest
+  proxy** for forward odds. It is a proxy, not a promise: markets change regime,
+  and a strategy can look great out-of-sample and still lose next week.
+- **More days = more trust.** A handful of days tells you almost nothing. Keep
+  recording and re-running.
+
+If you remember one thing: a backtest describes the past. It never guarantees
+the next day or the next month.
+
+## Config file (skip the long command lines)
+
+Copy `config.example.json` to `config.json` and set your defaults once:
+
+```bash
+cp config.example.json config.json
+# edit config.json, then just:
+python3 bot.py
+```
+
+Any command-line flag still overrides the file. Keys use the flag names (hyphens
+or underscores both work), e.g. `"stop-atr": 2.0`.
 
 ## Optional: let Claude make each decision
 

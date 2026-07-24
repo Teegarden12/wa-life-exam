@@ -45,8 +45,10 @@ import urllib.request
 import urllib.error
 from datetime import datetime, timezone
 
+import indicators as ind
 import instruments
 import notify
+import strategies
 
 
 # --------------------------------------------------------------------------
@@ -102,89 +104,17 @@ def read_csv_bars(path):
 
 
 # --------------------------------------------------------------------------
-# Indicators (pure Python, no numpy)
+# Decision engines
+#
+# Rule-based strategies live in strategies.py (a registry you can extend). The
+# only engine defined here is the optional LLM one, since it needs API plumbing.
+# All engines expose decide(candles) -> ("LONG"|"SHORT"|"FLAT", reason, atr).
 # --------------------------------------------------------------------------
-
-def ema(values, period):
-    if not values:
-        return []
-    k = 2.0 / (period + 1)
-    out = [values[0]]
-    for v in values[1:]:
-        out.append(v * k + out[-1] * (1 - k))
-    return out
-
-
-def rsi(closes, period=14):
-    if len(closes) <= period:
-        return [None] * len(closes)
-    gains, losses = [], []
-    for i in range(1, len(closes)):
-        change = closes[i] - closes[i - 1]
-        gains.append(max(change, 0.0))
-        losses.append(max(-change, 0.0))
-    avg_gain = sum(gains[:period]) / period
-    avg_loss = sum(losses[:period]) / period
-    out = [None] * (period + 1)
-    for i in range(period, len(gains)):
-        if i > period:
-            avg_gain = (avg_gain * (period - 1) + gains[i]) / period
-            avg_loss = (avg_loss * (period - 1) + losses[i]) / period
-        out.append(100.0 if avg_loss == 0 else 100.0 - (100.0 / (1 + avg_gain / avg_loss)))
-    while len(out) < len(closes):
-        out.append(out[-1])
-    return out
-
-
-def atr(candles, period=14):
-    if len(candles) <= period:
-        return [None] * len(candles)
-    trs = [candles[0]["high"] - candles[0]["low"]]
-    for i in range(1, len(candles)):
-        h, l = candles[i]["high"], candles[i]["low"]
-        pc = candles[i - 1]["close"]
-        trs.append(max(h - l, abs(h - pc), abs(l - pc)))
-    out = [None] * (period - 1)
-    prev = sum(trs[:period]) / period
-    out.append(prev)
-    for i in range(period, len(trs)):
-        prev = (prev * (period - 1) + trs[i]) / period
-        out.append(prev)
-    return out
-
-
-# --------------------------------------------------------------------------
-# Decision engines — return ("LONG"|"SHORT"|"FLAT", reason, atr_value)
-# --------------------------------------------------------------------------
-
-class RuleEngine:
-    name = "rule"
-
-    def __init__(self, ema_fast=9, ema_slow=21, rsi_period=14, atr_period=14):
-        self.ema_fast, self.ema_slow = ema_fast, ema_slow
-        self.rsi_period, self.atr_period = rsi_period, atr_period
-
-    def decide(self, candles):
-        closes = [c["close"] for c in candles]
-        need = max(self.ema_slow, self.rsi_period, self.atr_period) + 2
-        if len(closes) < need:
-            return "FLAT", "warming up", None
-        f = ema(closes, self.ema_fast)[-1]
-        s = ema(closes, self.ema_slow)[-1]
-        rr = rsi(closes, self.rsi_period)[-1]
-        aa = atr(candles, self.atr_period)[-1]
-        if rr is None or aa is None:
-            return "FLAT", "warming up", None
-        if f > s and rr < 68:
-            return "LONG", f"EMA{self.ema_fast}>{self.ema_slow}, RSI {rr:.0f}", aa
-        if f < s and rr > 32:
-            return "SHORT", f"EMA{self.ema_fast}<{self.ema_slow}, RSI {rr:.0f}", aa
-        return "FLAT", f"no clear edge (RSI {rr:.0f})", aa
-
 
 class LLMEngine:
     """Optional: let Claude decide each bar. Needs ANTHROPIC_API_KEY."""
-    name = "llm"
+    key = "llm"
+    label = "Claude decides"
     API_URL = "https://api.anthropic.com/v1/messages"
 
     def __init__(self, model="claude-haiku-4-5-20251001", atr_period=14):
@@ -195,7 +125,7 @@ class LLMEngine:
                      "Get one at https://console.anthropic.com/")
 
     def decide(self, candles):
-        aa_list = atr(candles, self.atr_period)
+        aa_list = ind.atr(candles, self.atr_period)
         aa = aa_list[-1] if aa_list and aa_list[-1] is not None else None
         bars = [{"o": round(c["open"], 2), "h": round(c["high"], 2),
                  "l": round(c["low"], 2), "c": round(c["close"], 2)}
@@ -446,7 +376,7 @@ def backtest(candles, engine, spec, contracts, symbol, stop_atr, target_atr,
 
     line = "=" * 64
     print(f"\n{line}")
-    print(f"  BACKTEST — {symbol} ({spec['name']})  x{contracts}  engine={engine.name}")
+    print(f"  BACKTEST — {symbol} ({spec['name']})  x{contracts}  engine={engine.label}")
     print(f"  {len(candles)} bars, stop={stop_atr}xATR target={target_atr}xATR")
     print(line)
     print(f"  Trades taken        : {n}")
@@ -467,6 +397,67 @@ def backtest(candles, engine, spec, contracts, symbol, stop_atr, target_atr,
 
 
 # --------------------------------------------------------------------------
+# Config file + record mode
+# --------------------------------------------------------------------------
+
+def load_config(path):
+    """Load default settings from a JSON file. Keys use the flag names with
+    hyphens or underscores, e.g. {"symbol":"MNQ","stop-atr":2.0}."""
+    if not path or not os.path.exists(path):
+        return {}
+    try:
+        with open(path) as f:
+            raw = json.load(f)
+    except (OSError, ValueError) as e:
+        print(f"(config '{path}' ignored: {e})")
+        return {}
+    return {str(k).replace("-", "_"): v for k, v in raw.items()}
+
+
+def record_mode(args, spec):
+    """Capture closed bars to data/<symbol>_<UTC-date>.csv without trading.
+
+    Great for building a history of days to backtest with compare.py. Leave it
+    running through a session; it rolls to a new file each UTC day.
+    """
+    os.makedirs(args.data_dir, exist_ok=True)
+    poll = max(args.granularity, 15) if args.data_source == "coinbase" else max(args.poll, 1)
+    print("=" * 64)
+    print(f"  RECORD MODE — capturing {args.symbol} bars to {args.data_dir}/ (no trading)")
+    print("  Leave running to build a day of history. Ctrl+C to stop.")
+    print("=" * 64)
+    last = None
+    while True:
+        try:
+            if args.data_source == "coinbase":
+                candles = fetch_coinbase(args.symbol, args.granularity)[:-1]
+            else:
+                candles = read_csv_bars(args.csv_file)
+        except (urllib.error.URLError, ValueError, TimeoutError, OSError) as e:
+            print(f"[{datetime.now():%H:%M:%S}] feed error: {e} — retrying")
+            time.sleep(poll)
+            continue
+        if not candles:
+            time.sleep(poll)
+            continue
+        newest = candles[-1]
+        if newest["time"] != last:
+            last = newest["time"]
+            date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            path = os.path.join(args.data_dir, f"{args.symbol}_{date}.csv")
+            newfile = not os.path.exists(path)
+            with open(path, "a", newline="") as fh:
+                w = csvmod.writer(fh)
+                if newfile:
+                    w.writerow(["time", "open", "high", "low", "close", "volume"])
+                w.writerow([newest["time"], newest["open"], newest["high"],
+                            newest["low"], newest["close"], newest["volume"]])
+            print(f"[{datetime.now():%H:%M:%S}] saved bar -> {path}  "
+                  f"close {newest['close']:,.4f}")
+        time.sleep(poll)
+
+
+# --------------------------------------------------------------------------
 # Main loop
 # --------------------------------------------------------------------------
 
@@ -480,8 +471,11 @@ def main():
                     help="coinbase bar size in seconds (demo only)")
     ap.add_argument("--demo", action="store_true",
                     help="allow a non-Lucid demo instrument (required for coinbase)")
-    ap.add_argument("--engine", choices=["rule", "llm"], default="rule")
+    ap.add_argument("--engine", choices=list(strategies.REGISTRY) + ["llm"],
+                    default="ema_rsi", help="strategy to trade")
     ap.add_argument("--model", default="claude-haiku-4-5-20251001")
+    ap.add_argument("--config", default="config.json",
+                    help="JSON file of default settings (CLI flags override it)")
     ap.add_argument("--contracts", type=int, default=1, help="paper position size in contracts")
     ap.add_argument("--stop-atr", type=float, default=1.5, help="stop = N x ATR")
     ap.add_argument("--target-atr", type=float, default=2.0, help="target = N x ATR")
@@ -495,9 +489,19 @@ def main():
                     help="push alerts to your phone via ntfy.sh/<topic> (install the ntfy app)")
     ap.add_argument("--webhook-url", default=None,
                     help="POST alerts as JSON to a URL (Discord/Slack/custom)")
-    # backtest
+    # backtest / record
     ap.add_argument("--backtest", action="store_true",
                     help="run over a saved bar file (--csv-file) and print stats, then exit")
+    ap.add_argument("--record", action="store_true",
+                    help="capture bars to data/<symbol>_<date>.csv (no trading); build history")
+    ap.add_argument("--data-dir", default="data",
+                    help="folder for captured daily bar files (used by --record and compare.py)")
+
+    # Load defaults from a config file first, so CLI flags still override them.
+    pre, _ = ap.parse_known_args()
+    cfg = load_config(pre.config)
+    if cfg:
+        ap.set_defaults(**cfg)
     args = ap.parse_args()
 
     # --- enforce "only what Lucid allows" ---
@@ -518,7 +522,11 @@ def main():
         sys.exit("ERROR: the coinbase feed is crypto (DEMO ONLY). Add --demo to use it, "
                  "or use --data-source csv with a Lucid instrument.")
 
-    engine = RuleEngine() if args.engine == "rule" else LLMEngine(model=args.model)
+    if args.record:
+        record_mode(args, spec)
+        return
+
+    engine = LLMEngine(model=args.model) if args.engine == "llm" else strategies.build(args.engine)
 
     # --- backtest mode: run over the saved file and exit ---
     if args.backtest:
@@ -538,7 +546,7 @@ def main():
     print("=" * 64)
     print("  PAPER TRADING BOT — simulated account, real prices")
     print(f"  {args.symbol} ({spec['name']})  x{args.contracts} contracts")
-    print(f"  source={args.data_source}  engine={engine.name}  "
+    print(f"  source={args.data_source}  engine={engine.label}  "
           f"stop={args.stop_atr}xATR  target={args.target_atr}xATR")
     if args.demo:
         print("  *** DEMO instrument — NOT tradable in Lucid. For watching only. ***")
