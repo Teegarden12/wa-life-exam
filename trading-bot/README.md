@@ -92,6 +92,18 @@ access** (many prop/eval accounts don't — ask their support), and you need a
 **real-time data subscription** on Tradovate. See DEPLOY.md for the honest
 details.
 
+**Want to test the PC-free setup for $0 today?** Before sorting out Tradovate,
+run the free **SPY/QQQ proxy feed** on the server — no account, nothing to
+install — to prove the whole chain works:
+
+```bash
+PROXY_SYMBOL=SPY ./run-cloud-proxy.sh
+```
+
+It's a delayed, approximate proxy (good for testing the plumbing, not for real
+timing), and you swap in the Tradovate feed for real data later. Details in
+[DEPLOY.md](DEPLOY.md).
+
 ### Step 2 (optional) — open the live dashboard from your phone
 
 If you also want to see the dashboard (P&L, feed, run a compare) from anywhere,

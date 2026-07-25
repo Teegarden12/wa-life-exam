@@ -18,7 +18,29 @@ the trades in your Lucid/broker mobile app.
    small fixes. It only *reads* data; it places no orders.
 
 If your account blocks API access, this path won't work — use the SPY/QQQ proxy
-or keep NinjaTrader on a PC instead (see README).
+(below) or keep NinjaTrader on a PC instead (see README).
+
+---
+
+## Quick $0 test first (no Tradovate, no PC) — recommended
+
+Before dealing with API access, prove the whole cloud setup works for free using
+a **SPY/QQQ proxy feed**. It pulls index-ETF bars from a free source and writes
+`bars.csv` just like the real feed does. On your server:
+
+```bash
+cp config.example.json config.json    # edit: host 0.0.0.0, a token, your ntfy-topic
+PROXY_SYMBOL=SPY ./run-cloud-proxy.sh     # SPY for MES/ES  (QQQ for MNQ/NQ)
+```
+
+That's it — no credentials, nothing to install. You'll get live-ish signals on
+your phone within a couple of minutes, and you can confirm the server → bars.csv
+→ app → phone chain end to end.
+
+**Honest limits of the proxy:** SPY is not the ES contract (only tracks the same
+index), and the free data is delayed ~15 minutes. It's for *testing the setup*,
+not for trading real money on timing. Once it works, switch to the Tradovate
+feed below for real, real-time data.
 
 ---
 
