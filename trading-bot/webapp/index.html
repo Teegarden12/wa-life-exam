@@ -102,6 +102,25 @@
     </div>
     <div class="checkline"><input id="desktop" type="checkbox"><label style="margin:0">Desktop pop-up alerts</label></div>
     <div class="checkline"><input id="demo" type="checkbox"><label style="margin:0">Demo instrument (crypto, not Lucid)</label></div>
+
+    <label>Execution</label>
+    <select id="execute" onchange="toggleExec()">
+      <option value="manual">Manual — signals only, you place the trade</option>
+      <option value="auto">Auto — place trades via TradersPost (real money)</option>
+    </select>
+    <div id="execFields" class="hidden">
+      <div id="execWarn" style="font-size:12.5px;color:var(--red);margin-top:8px;font-weight:600">
+        ⚠ Auto-execution places REAL orders in your Lucid account with no human check.
+        Only turn this on after you trust it on paper.
+      </div>
+      <label>TradersPost webhook URL</label>
+      <input id="traderspost_url" placeholder="https://webhooks.traderspost.io/...">
+      <label>TradersPost ticker (broker symbol, e.g. MESU2025)</label>
+      <input id="traderspost_symbol" placeholder="leave blank to use the instrument">
+    </div>
+    <label>Flat by (ET) — Lucid requires closing before 4:45pm, no weekends</label>
+    <input id="session_end" value="16:45">
+
     <button id="startBtn" onclick="start()">▶ Start</button>
     <button id="stopBtn" class="stop hidden" onclick="stop()">■ Stop</button>
     <div class="note">Fake money. When an alert fires, you decide whether to place the
@@ -177,11 +196,22 @@ function cfg(){
     max_daily_loss:+$('max_daily_loss').value, ntfy_topic:$('ntfy_topic').value,
     desktop:$('desktop').checked, demo:$('demo').checked,
     data_dir:$('data_dir').value, last_days:+$('last_days').value,
+    execute:$('execute').value, traderspost_url:$('traderspost_url').value,
+    traderspost_symbol:$('traderspost_symbol').value, session_end:$('session_end').value,
   };
 }
 
+function toggleExec(){
+  $('execFields').classList.toggle('hidden', $('execute').value!=='auto');
+}
+
 async function start(){
-  const r = await (await api('/api/start',{method:'POST',body:JSON.stringify(cfg())})).json();
+  const c = cfg();
+  if(c.execute==='auto'){
+    if(!c.traderspost_url){ alert('Auto-execution needs a TradersPost webhook URL.'); return; }
+    if(!confirm('AUTO-EXECUTION will place REAL orders in your Lucid account with no human check.\n\nAre you sure you want to start live trading?')) return;
+  }
+  const r = await (await api('/api/start',{method:'POST',body:JSON.stringify(c)})).json();
   if(!r.ok){ alert(r.error||'could not start'); }
 }
 async function stop(){ await api('/api/stop',{method:'POST'}); }

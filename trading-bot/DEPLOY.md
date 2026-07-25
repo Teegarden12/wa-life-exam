@@ -121,6 +121,31 @@ signal to your phone via ntfy.
   the server's public IP, the `token` is your only lock — keep it long and secret,
   and prefer Tailscale.
 
+## Optional: fully automatic execution (TradersPost)
+
+Lucid permits automated trading via **TradersPost**, so the bot can place trades
+for you instead of you mirroring by hand. This is **off by default** — turn it on
+only after you trust it on paper.
+
+1. Create a TradersPost account, connect your Lucid/Tradovate broker, and make a
+   strategy with a **webhook URL**.
+2. In the app pick **Execution: Auto**, paste the webhook URL, and set the
+   TradersPost **ticker** (the broker symbol, e.g. `MESU2025`). Or in config.json:
+   ```json
+   "execute": "auto",
+   "traderspost-url": "https://webhooks.traderspost.io/...",
+   "traderspost-symbol": "MESU2025",
+   "session-end": "16:45"
+   ```
+3. The bot sends a buy/sell with a protective stop bracket on entry, and flattens
+   on a signal reversal. The **session guard** auto-flattens by 4:45pm ET and
+   never trades weekends (a Lucid rule — holding over is a permanent-ban risk).
+
+**This moves real money with no human in the loop.** A bad signal or a bug
+executes for real. The webhook format could not be tested here — send a
+TradersPost **test signal** first and confirm an order appears before trusting
+it. Keep `execute` on `manual` until you've watched it live-on-paper for a while.
+
 ## Before real money
 
 Run it in Tradovate **demo** (`TRADOVATE_ENV=demo`) first and watch the signals

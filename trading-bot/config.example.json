@@ -17,5 +17,11 @@
   "autostart": true,
   "host": "127.0.0.1",
   "port": 8787,
-  "token": null
+  "token": null,
+
+  "_execution": "manual = signals only (default, safe). auto = place real orders via TradersPost.",
+  "execute": "manual",
+  "traderspost-url": null,
+  "traderspost-symbol": null,
+  "session-end": "16:45"
 }

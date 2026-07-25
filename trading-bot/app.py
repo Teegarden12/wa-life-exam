@@ -30,7 +30,9 @@ from urllib.parse import urlparse, parse_qs
 import bot
 import compare
 import instruments
+import session as session_guard
 import strategies
+import traderspost
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOST, PORT = "127.0.0.1", 8787
@@ -54,7 +56,7 @@ class BotRunner:
             "running": False, "symbol": None, "engine": None, "contracts": 1,
             "price": None, "decision": None, "reason": None, "position": None,
             "realized": 0.0, "wins": 0, "losses": 0, "started_at": None,
-            "message": None, "demo": False,
+            "message": None, "demo": False, "execute": "manual",
         }
 
     # ---- control ----
@@ -127,10 +129,18 @@ class BotRunner:
                                 cfg.get("log", "trades.csv"))
         poll = max(granularity, 15) if source == "coinbase" else max(float(cfg.get("poll", 5)), 1)
 
+        # Optional auto-execution via TradersPost (OFF unless execute == "auto").
+        auto_exec = str(cfg.get("execute", "manual")).lower() == "auto"
+        tp_ticker = cfg.get("traderspost_symbol") or symbol
+        executor = traderspost.Executor(cfg.get("traderspost_url"), tp_ticker, auto_exec)
+        session_end = cfg.get("session_end", "16:45")
+
         with self.lock:
             self.state.update(running=True, symbol=symbol, engine=getattr(engine, "label", engine_key),
-                              contracts=contracts, demo=demo,
+                              contracts=contracts, demo=demo, execute=("auto" if executor.enabled else "manual"),
                               started_at=datetime.now().strftime("%H:%M:%S"))
+        if executor.enabled:
+            print("*** AUTO-EXECUTION ON: real orders will be sent to TradersPost. ***")
 
         def emit(kind, side, price, **kw):
             ev = {"time": datetime.now().strftime("%H:%M:%S"), "kind": kind,
@@ -157,10 +167,18 @@ class BotRunner:
                 else:
                     notifier.send(f"CLOSE {side} {contracts}x {symbol} ({kw.get('pnl',0):+,.2f})",
                                   f"exit @ {price:,.4f} — {kw.get('reason','')}", urgent=True)
+            # auto-execution: place/flatten in the real account via TradersPost
+            if executor.enabled:
+                if kind == "ENTRY":
+                    executor.entry(side, contracts, price, kw.get("stop"), kw.get("target"))
+                # stop/target exits are handled by the broker-side bracket sent on
+                # entry; only send an exit for discretionary closes (reversal/session)
+                elif kw.get("reason") not in ("stop hit", "target hit"):
+                    executor.exit()
 
         last_bar = None
         day = datetime.now(timezone.utc).date()
-        halted = False
+        dl_halt = False   # daily-loss halt (persists through the day)
         while not self.stop_flag:
             try:
                 if source == "coinbase":
@@ -181,7 +199,7 @@ class BotRunner:
 
             today = datetime.now(timezone.utc).date()
             if today != day:
-                day, halted = today, False
+                day, dl_halt = today, False
                 if engine_choice == "auto" and not acct.position:
                     key, best, ndays = compare.pick_best(data_dir, symbol, spec, contracts,
                                                          stop_atr, target_atr, last_days)
@@ -191,20 +209,42 @@ class BotRunner:
 
             if newest["time"] != last_bar:
                 last_bar = newest["time"]
-                was_halted = halted
-                decision, why, halted = bot.process_bar(
-                    acct, engine, closed, symbol, spec, contracts, halted, max_daily_loss, emit)
+
+                # Lucid session guard: flatten by the cutoff / on weekends, and
+                # block new entries outside the session (transient, per-bar).
+                session_block = False
+                if session_guard.must_flatten(session_end):
+                    if acct.position:
+                        side = acct.position["side"]
+                        pnl = acct.close(newest["close"], "session end")
+                        emit("EXIT", side, newest["close"], reason="session end", pnl=pnl)
+                    session_block = True
+                elif not session_guard.can_open(session_end):
+                    session_block = True
+
+                # daily-loss halt (persists through the day)
+                was_halted = dl_halt
+                if max_daily_loss > 0 and acct.realized <= -abs(max_daily_loss):
+                    dl_halt = True
+
+                decision, why, _ = bot.process_bar(
+                    acct, engine, closed, symbol, spec, contracts,
+                    dl_halt or session_block, max_daily_loss, emit)
                 pos = None
                 if acct.position:
                     pos = {"side": acct.position["side"], "entry": acct.position["entry"],
                            "stop": acct.position["stop"], "target": acct.position["target"]}
+                msg = None
+                if dl_halt and not was_halted:
+                    msg = "daily loss limit hit — paused for the day"
+                elif session_block:
+                    msg = "outside trading session — flat until next session"
                 with self.lock:
                     self.state.update(
                         price=newest["close"], decision=decision, reason=why, position=pos,
                         realized=acct.realized, wins=acct.wins, losses=acct.losses,
                         engine=getattr(engine, "label", engine_key),
-                        message=("daily loss limit hit — paused for the day"
-                                 if (halted and not was_halted) else self.state["message"]))
+                        message=(msg if msg else self.state["message"]))
             time.sleep(poll)
 
         with self.lock:
