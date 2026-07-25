@@ -51,10 +51,21 @@ REST = {
 MD_WS = "wss://md.tradovateapi.com/v1/websocket"
 
 
+def _secret_fallback(name):
+    """Read a credential saved via the app's Connect page (secrets.json),
+    e.g. TRADOVATE_USERNAME -> "tradovate_username"."""
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "secrets.json")) as f:
+            return json.load(f).get(name.lower())
+    except (OSError, ValueError):
+        return None
+
+
 def _need(name):
-    v = os.environ.get(name)
+    v = os.environ.get(name) or _secret_fallback(name)
     if not v:
-        sys.exit(f"Missing environment variable {name}. See the header of this file.")
+        sys.exit(f"Missing {name}. Set it in the app's Connect page or as an "
+                 f"environment variable. See the header of this file.")
     return v
 
 

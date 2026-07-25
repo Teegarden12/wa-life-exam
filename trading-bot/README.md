@@ -57,6 +57,29 @@ Everything the command-line tool does, with nothing to type. It's the same
 engine underneath, so all the same caveats apply: fake money, mirror in Lucid by
 hand, no guaranteed edge.
 
+### Install it as an app
+
+The dashboard is a PWA — in your browser's menu choose **Install** (desktop) or
+**Add to Home Screen** (phone) and it gets its own icon and opens like a native
+app. (When it's deployed to an always-on server — see DEPLOY.md — that icon
+opens your live dashboard from anywhere.)
+
+### Connect your account (no file editing)
+
+Open the **Connect account** panel in the app and enter:
+
+- your **TradersPost webhook URL** (this is the connection that places trades in
+  your Lucid/Tradovate account — TradersPost holds the broker login, not this
+  app), and
+- optionally your **Tradovate data credentials** (only if you use the Tradovate
+  data feed instead of the free proxy).
+
+Hit **Save connection** and you're set — it's remembered for next time.
+Everything is stored **only on the machine running the app** (`config.json` and a
+git-ignored `secrets.json`), never sent anywhere but the endpoints you configure,
+and secrets are never shown back in the browser. When the app is reachable off
+your machine, always set a **token** and use **Tailscale** (see DEPLOY.md).
+
 ## From your phone (at work during market hours)
 
 First, the honest constraint: **your PC has to stay on and running NinjaTrader +

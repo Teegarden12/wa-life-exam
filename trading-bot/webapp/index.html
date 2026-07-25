@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Paper Trading Bot</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0e1116">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="TradingBot">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <style>
   :root {
     --bg:#0e1116; --panel:#171b22; --panel2:#1e242e; --line:#2a313c;
@@ -111,12 +116,8 @@
     <div id="execFields" class="hidden">
       <div id="execWarn" style="font-size:12.5px;color:var(--red);margin-top:8px;font-weight:600">
         ⚠ Auto-execution places REAL orders in your Lucid account with no human check.
-        Only turn this on after you trust it on paper.
+        Connect your account below and only turn this on after you trust it on paper.
       </div>
-      <label>TradersPost webhook URL</label>
-      <input id="traderspost_url" placeholder="https://webhooks.traderspost.io/...">
-      <label>TradersPost ticker (broker symbol, e.g. MESU2025)</label>
-      <input id="traderspost_symbol" placeholder="leave blank to use the instrument">
     </div>
     <label>Flat by (ET) — Lucid requires closing before 4:45pm, no weekends</label>
     <input id="session_end" value="16:45">
@@ -130,6 +131,31 @@
   <!-- RIGHT: live + tools -->
   <div>
     <div class="card">
+      <h2>Connect account</h2>
+      <div class="note" style="margin-top:0">Saved on this machine only. Used to place trades
+        (TradersPost) and, optionally, to pull your real data (Tradovate).</div>
+      <label>TradersPost webhook URL <span id="tpStatus" style="color:var(--muted)"></span></label>
+      <input id="traderspost_url" placeholder="https://webhooks.traderspost.io/...">
+      <label>TradersPost ticker (broker symbol, e.g. MESU2025)</label>
+      <input id="traderspost_symbol" placeholder="leave blank to use the instrument">
+      <details style="margin-top:12px">
+        <summary style="cursor:pointer;color:var(--muted);font-size:13px">Tradovate data credentials (optional, advanced)</summary>
+        <div class="note">Only needed if you use the Tradovate data feed instead of the free proxy.
+          Stored locally in secrets.json, never shown again.</div>
+        <div class="row">
+          <div><label>Username <span id="uStatus"></span></label><input id="tradovate_username" placeholder="unchanged"></div>
+          <div><label>Password <span id="pStatus"></span></label><input id="tradovate_password" type="password" placeholder="unchanged"></div>
+        </div>
+        <div class="row">
+          <div><label>API key (cid) <span id="cStatus"></span></label><input id="tradovate_cid" placeholder="unchanged"></div>
+          <div><label>API secret <span id="sStatus"></span></label><input id="tradovate_secret" type="password" placeholder="unchanged"></div>
+        </div>
+      </details>
+      <button class="ghost" onclick="saveConn()">💾 Save connection</button>
+      <div class="msg" id="connMsg"></div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
       <h2>Live</h2>
       <div class="stats">
         <div class="stat"><div class="k" id="symLbl">—</div><div class="v" id="price">—</div></div>
@@ -177,6 +203,39 @@ const TOKEN = new URLSearchParams(location.search).get('token');
 function api(path, opts={}){
   opts.headers = Object.assign({}, opts.headers, TOKEN ? {'X-Token': TOKEN} : {});
   return fetch(path, opts);
+}
+
+// prefill the form from saved settings (so "connect once" sticks)
+async function loadSettings(){
+  try {
+    const s = await (await api('/api/settings')).json();
+    const set = (id,v)=>{ if(v!==undefined && v!==null && $(id)) $(id).value = v; };
+    ['symbol','allow','engine','contracts','stop_atr','target_atr','data_source','csv_file',
+     'max_daily_loss','ntfy_topic','data_dir','last_days','execute','traderspost_url',
+     'traderspost_symbol','session_end'].forEach(k=>set(k, s[k]));
+    if(s.desktop!==undefined && $('desktop')) $('desktop').checked = !!s.desktop;
+    if($('execute')) toggleExec();
+    // show which credentials are already saved
+    const mark = (id,ok)=>{ if($(id)) $(id).textContent = ok ? '✓ saved' : ''; };
+    mark('tpStatus', !!s.traderspost_url);
+    mark('uStatus', s.tradovate_username_set); mark('pStatus', s.tradovate_password_set);
+    mark('cStatus', s.tradovate_cid_set); mark('sStatus', s.tradovate_secret_set);
+  } catch(e){ /* first run, no settings yet */ }
+}
+
+async function saveConn(){
+  const body = {
+    traderspost_url:$('traderspost_url').value, traderspost_symbol:$('traderspost_symbol').value,
+    tradovate_username:$('tradovate_username').value, tradovate_password:$('tradovate_password').value,
+    tradovate_cid:$('tradovate_cid').value, tradovate_secret:$('tradovate_secret').value,
+  };
+  $('connMsg').textContent = 'saving…';
+  const r = await (await api('/api/settings',{method:'POST',body:JSON.stringify(body)})).json();
+  if(r.ok){
+    $('connMsg').textContent = 'Saved on this machine.';
+    ['tradovate_password','tradovate_secret','tradovate_username','tradovate_cid'].forEach(id=>$(id).value='');
+    loadSettings();
+  } else { $('connMsg').textContent = r.error||'save failed'; }
 }
 
 async function loadMeta(){
@@ -292,7 +351,12 @@ async function poll(){
   }catch(e){/* server busy */}
 }
 
-loadMeta();
+// register the service worker so the app is installable
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('/sw.js').catch(()=>{});
+}
+
+loadMeta().then(loadSettings);
 setInterval(poll, 2000); poll();
 </script>
 </body>

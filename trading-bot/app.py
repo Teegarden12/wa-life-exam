@@ -31,6 +31,7 @@ import bot
 import compare
 import instruments
 import session as session_guard
+import store
 import strategies
 import traderspost
 
@@ -294,11 +295,11 @@ class Handler(BaseHTTPRequestHandler):
         return q.get("token", [None])[0] == TOKEN
 
     def do_GET(self):
-        if not self._authed():
-            return self.send_error(401, "missing or bad token")
         route = urlparse(self.path).path
-        if route in ("/", "/index.html"):
-            return self._serve_file("index.html", "text/html; charset=utf-8")
+        # Only the data API is token-protected; static shell/PWA assets are not
+        # (they carry no account data, and API calls still fail without a token).
+        if route.startswith("/api/") and not self._authed():
+            return self.send_error(401, "missing or bad token")
         self.path = route  # strip query for the checks below
         if self.path in ("/", "/index.html"):
             return self._serve_file("index.html", "text/html; charset=utf-8")
@@ -315,12 +316,20 @@ class Handler(BaseHTTPRequestHandler):
             })
         if self.path == "/api/status":
             return self._json(RUNNER.status())
+        if self.path == "/api/settings":
+            return self._json(store.public_settings())
+        if route == "/manifest.json":
+            return self._serve_file("manifest.json", "application/manifest+json")
+        if route == "/sw.js":
+            return self._serve_file("sw.js", "application/javascript")
+        if route in ("/icon-192.png", "/icon-512.png"):
+            return self._serve_file(route.lstrip("/"), "image/png")
         self.send_error(404)
 
     def do_POST(self):
-        if not self._authed():
-            return self.send_error(401, "missing or bad token")
         self.path = urlparse(self.path).path
+        if self.path.startswith("/api/") and not self._authed():
+            return self.send_error(401, "missing or bad token")
         cfg = self._read_json()
         try:
             if self.path == "/api/start":
@@ -331,6 +340,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(self._backtest(cfg))
             if self.path == "/api/compare":
                 return self._json(self._compare(cfg))
+            if self.path == "/api/settings":
+                return self._json({"ok": True, "settings": store.save(cfg)})
         except Exception as e:  # never crash the server on a bad request
             return self._json({"ok": False, "error": str(e)}, code=400)
         self.send_error(404)
