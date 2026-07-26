@@ -57,6 +57,13 @@ Everything the command-line tool does, with nothing to type. It's the same
 engine underneath, so all the same caveats apply: fake money, mirror in Lucid by
 hand, no guaranteed edge.
 
+### Run it 24/7 on Windows (survives logout) + phone setup
+
+To keep it running after you log out of your PC and use it from your phone,
+follow **[WINDOWS-SETUP.md](WINDOWS-SETUP.md)** — it installs a background task
+(right-click `install-startup.bat` → Run as administrator) and walks through
+ntfy alerts, Tailscale, and adding it to your home screen.
+
 ### Install it as an app
 
 The dashboard is a PWA — in your browser's menu choose **Install** (desktop) or

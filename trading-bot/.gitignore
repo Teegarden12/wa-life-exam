@@ -3,4 +3,5 @@ trades.csv
 __pycache__/
 config.json
 secrets.json
+service-run.bat
 data/
