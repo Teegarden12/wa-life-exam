@@ -46,6 +46,28 @@ def exit_signal(ticker):
     return {"ticker": ticker, "action": "exit"}
 
 
+def test_connection(url, ticker):
+    """Fire a harmless 'exit' (flatten) signal to check the webhook link.
+
+    With no open position an exit is a no-op at the broker, so this is safe to
+    run before going live. Returns {ok, detail}.
+    """
+    if not url:
+        return {"ok": False, "detail": "No TradersPost webhook URL set."}
+    try:
+        status = _post(url, exit_signal(ticker or "TEST"))
+        if 200 <= status < 300:
+            return {"ok": True, "detail": f"TradersPost accepted the test (HTTP {status})."}
+        return {"ok": False, "detail": f"Endpoint reached but returned HTTP {status}."}
+    except urllib.error.HTTPError as e:
+        return {"ok": False,
+                "detail": f"Endpoint reached but rejected it (HTTP {e.code}). "
+                          f"Check the URL and that your broker is connected in TradersPost."}
+    except (urllib.error.URLError, OSError) as e:
+        reason = getattr(e, "reason", e)
+        return {"ok": False, "detail": f"Could not reach the webhook: {reason}"}
+
+
 def _post(url, payload, timeout=10):
     data = json.dumps(payload).encode()
     req = urllib.request.Request(url, data=data, method="POST",

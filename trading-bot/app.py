@@ -342,6 +342,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(self._compare(cfg))
             if self.path == "/api/settings":
                 return self._json({"ok": True, "settings": store.save(cfg)})
+            if self.path == "/api/test-connection":
+                url = cfg.get("traderspost_url") or store.load_config_dict().get("traderspost_url")
+                ticker = cfg.get("traderspost_symbol") or cfg.get("symbol") or "MES"
+                return self._json(traderspost.test_connection(url, ticker))
         except Exception as e:  # never crash the server on a bad request
             return self._json({"ok": False, "error": str(e)}, code=400)
         self.send_error(404)

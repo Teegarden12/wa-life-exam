@@ -151,7 +151,11 @@
           <div><label>API secret <span id="sStatus"></span></label><input id="tradovate_secret" type="password" placeholder="unchanged"></div>
         </div>
       </details>
-      <button class="ghost" onclick="saveConn()">💾 Save connection</button>
+      <div class="row">
+        <button class="ghost" onclick="saveConn()">💾 Save connection</button>
+        <button class="ghost" onclick="testConn()">🔌 Test connection</button>
+      </div>
+      <div class="note" style="margin-top:6px">Test sends a harmless flatten signal — safe when you have no open position.</div>
       <div class="msg" id="connMsg"></div>
     </div>
 
@@ -236,6 +240,17 @@ async function saveConn(){
     ['tradovate_password','tradovate_secret','tradovate_username','tradovate_cid'].forEach(id=>$(id).value='');
     loadSettings();
   } else { $('connMsg').textContent = r.error||'save failed'; }
+}
+
+async function testConn(){
+  const body = { traderspost_url:$('traderspost_url').value,
+                 traderspost_symbol:$('traderspost_symbol').value, symbol:$('symbol').value };
+  $('connMsg').textContent = 'testing…';
+  try {
+    const r = await (await api('/api/test-connection',{method:'POST',body:JSON.stringify(body)})).json();
+    $('connMsg').textContent = (r.ok ? '✓ ' : '✗ ') + r.detail;
+    $('connMsg').style.color = r.ok ? 'var(--green)' : 'var(--red)';
+  } catch(e){ $('connMsg').textContent = '✗ request failed'; $('connMsg').style.color='var(--red)'; }
 }
 
 async function loadMeta(){
