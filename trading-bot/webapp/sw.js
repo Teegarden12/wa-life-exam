@@ -1,7 +1,7 @@
 // Minimal service worker so the app is installable and the shell loads fast.
 // The live data (/api/*) is ALWAYS fetched from the network — never cached —
 // so you never see stale prices or signals.
-const SHELL = "tradingbot-shell-v1";
+const SHELL = "tradingbot-shell-v2";
 const ASSETS = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", (e) => {
