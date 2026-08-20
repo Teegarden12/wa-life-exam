@@ -1,12 +1,14 @@
 // Service Worker — WA Life Insurance Exam Prep
-const CACHE = 'wa-life-exam-v4';
+// Bump CACHE whenever the asset version strings below change.
+const CACHE = 'wa-life-exam-v5';
+const VER = '20260820';
 const ASSETS = [
   './',
   './index.html',
   './css/style.css',
-  './js/storage.js?v=20260711',
-  './js/questions.js?v=20260711',
-  './js/app.js?v=20260711',
+  './js/storage.js?v=' + VER,
+  './js/questions.js?v=' + VER,
+  './js/app.js?v=' + VER,
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -35,17 +37,28 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  // Cache-first: serve from cache, fall back to network and cache the response
+  if (e.request.method !== 'GET') return;
   e.respondWith(
+    // 1. Exact cache hit — the normal offline path.
     caches.match(e.request).then(cached => {
       if (cached) return cached;
-      return fetch(e.request).then(res => {
-        if (res && res.status === 200) {
-          const clone = res.clone();
-          caches.open(CACHE).then(c => c.put(e.request, clone));
-        }
-        return res;
-      }).catch(() => caches.match('./index.html'));
+      // 2. Same file, different ?v= string. Serving a slightly stale copy beats
+      //    a blank app when the version was bumped but the network is gone.
+      return caches.match(e.request, { ignoreSearch: true }).then(loose => {
+        if (loose) return loose;
+        // 3. Not cached at all — go to the network and cache what comes back.
+        return fetch(e.request).then(res => {
+          if (res && res.status === 200) {
+            const clone = res.clone();
+            caches.open(CACHE).then(c => c.put(e.request, clone));
+          }
+          return res;
+        }).catch(() => {
+          // Offline and uncached: navigations still get the app shell.
+          if (e.request.mode === 'navigate') return caches.match('./index.html');
+          return Response.error();
+        });
+      });
     })
   );
 });

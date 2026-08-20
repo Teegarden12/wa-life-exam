@@ -202,14 +202,23 @@
 </div>
 
 <!-- Load scripts -->
-<script src="js/storage.js?v=20260711"></script>
-<script src="js/questions.js?v=20260711"></script>
-<script src="js/app.js?v=20260711"></script>
+<script src="js/storage.js?v=20260820"></script>
+<script src="js/questions.js?v=20260820"></script>
+<script src="js/app.js?v=20260820"></script>
 <script>
   // Register service worker
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js')
       .catch(err => console.log('SW registration failed:', err));
+  }
+
+  // Ask the browser to keep our offline data. Safari evicts ordinary website
+  // storage after about a week of disuse, which is what silently breaks the
+  // app in airplane mode; persisted storage is exempt from that cleanup.
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persisted()
+      .then(already => already ? true : navigator.storage.persist())
+      .catch(() => {});
   }
 </script>
 </body>
