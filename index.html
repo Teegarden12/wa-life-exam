@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-  <meta name="description" content="Washington State Life Insurance Exam Prep — 300 questions, flashcards, and timed exam simulator">
+  <meta name="description" content="Washington State Life Insurance Exam Prep — 360 questions, flashcards, and timed exam simulator">
   <meta name="theme-color" content="#0f1117">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -12,7 +12,7 @@
   <title>WA Life Insurance Exam Prep</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=20260907a">
 </head>
 <body>
 <div id="app">
@@ -24,6 +24,7 @@
     <button class="nav-btn" data-screen="quiz" onclick="showScreen('quiz')">Quiz</button>
     <button class="nav-btn" data-screen="flashcards" onclick="showScreen('flashcards')">Flashcards</button>
     <button class="nav-btn" data-screen="exam" onclick="showScreen('exam')">Exam Sim</button>
+    <button class="nav-btn" data-screen="misses" onclick="showScreen('misses')">My Misses</button>
     <button class="nav-btn" data-screen="dashboard" onclick="showScreen('dashboard')">Dashboard</button>
   </nav>
 
@@ -32,21 +33,22 @@
     <!-- HOME -->
     <div id="screen-home" class="screen active">
       <h1>WA Life Insurance Exam Prep</h1>
-      <p class="subtitle">Life only · 300 questions · 7 chapters · Timed exam simulator</p>
+      <p class="subtitle">Life only · 360 questions · 8 PSI content areas · Timed exam simulator</p>
       <div id="home-stats"></div>
+      <div id="home-priority"></div>
       <div class="card">
         <h3>About this app</h3>
         <p class="text-sm text-muted" style="margin-bottom:10px;">
           Covers the <strong>Washington State Life (only) producer exam</strong> administered by PSI on behalf of the OIC.
           The real exam is <strong>100 questions · 150 minutes · 70% passing score</strong>.
         </p>
-        <div style="display:grid;gap:8px;grid-template-columns:1fr 1fr;font-size:0.87rem;">
-          <div>✓ Chapter Quizzes with instant feedback</div>
-          <div>✓ 75 Flashcards — key terms & definitions</div>
-          <div>✓ Quick / Half / Full exam simulator</div>
-          <div>✓ Per-chapter accuracy dashboard</div>
-          <div>✓ Works offline after first load</div>
-          <div>✓ Installable to phone home screen</div>
+        <div class="text-sm" style="display:grid;gap:8px;grid-template-columns:1fr 1fr;">
+          <div>✓ Quizzes by PSI content area or chapter</div>
+          <div>✓ 75 Flashcards — key terms &amp; definitions</div>
+          <div>✓ Mock exams weighted like the real test</div>
+          <div>✓ My Misses re-drills what you got wrong</div>
+          <div>✓ Scored by content area, like the state</div>
+          <div>✓ Works offline · installable to home screen</div>
         </div>
         <p class="text-sm text-muted" style="margin-top:12px;">
           ⚠️ Progress is stored on <em>this device only</em>. Phone and computer progress do not sync.
@@ -64,16 +66,26 @@
 
     <!-- QUIZ -->
     <div id="screen-quiz" class="screen">
-      <h1>Chapter Quizzes</h1>
-      <p class="subtitle">Select a chapter to begin. Instant feedback after each answer.</p>
-      <div id="quiz-chapter-list"></div>
+      <h1>Practice Quizzes</h1>
+      <p class="subtitle">Instant feedback after each answer. Anything you miss is queued in My Misses.</p>
+
+      <div id="quiz-browse">
+        <h2 style="margin:18px 0 4px;">By PSI content area</h2>
+        <p class="text-sm text-muted" style="margin-bottom:12px;">How the state actually scores you. The number after each is how many of the 100 exam questions come from it.</p>
+        <div id="quiz-area-list"></div>
+
+        <h2 style="margin:26px 0 4px;">By study chapter</h2>
+        <p class="text-sm text-muted" style="margin-bottom:12px;">The original teaching order — good for learning a topic start to finish.</p>
+        <div id="quiz-chapter-list"></div>
+      </div>
 
       <div id="quiz-active" style="display:none;">
         <div id="quiz-header">
-          <button class="btn btn-outline" onclick="exitQuiz()">← Chapters</button>
+          <button class="btn btn-outline" onclick="exitQuiz()">← Back</button>
           <span id="quiz-progress-text"></span>
         </div>
         <div class="question-card">
+          <div id="quiz-area-tag" class="text-sm text-muted" style="margin-bottom:6px;"></div>
           <div class="question-text" id="quiz-question"></div>
           <div class="options" id="quiz-options"></div>
           <div class="explanation" id="quiz-explanation"></div>
@@ -178,11 +190,22 @@
       </div>
     </div>
 
+    <!-- MY MISSES -->
+    <div id="screen-misses" class="screen">
+      <h1>My Misses</h1>
+      <p class="subtitle">Every question you get wrong is queued here until you prove you know it.</p>
+      <div id="misses-body"></div>
+    </div>
+
     <!-- DASHBOARD -->
     <div id="screen-dashboard" class="screen">
       <h1>Progress Dashboard</h1>
-      <p class="subtitle">Your accuracy by chapter and exam history. Progress is stored on this device only.</p>
+      <p class="subtitle">Your accuracy by PSI content area and exam history. Progress is stored on this device only.</p>
       <div id="dash-stats"></div>
+      <div class="card">
+        <h2>PSI Content Areas</h2>
+        <div id="dash-area-table"></div>
+      </div>
       <div class="card">
         <h2>Chapter Accuracy</h2>
         <div id="dash-chapter-table"></div>
@@ -202,9 +225,13 @@
 </div>
 
 <!-- Load scripts -->
-<script src="js/storage.js?v=20260820"></script>
-<script src="js/questions.js?v=20260820"></script>
-<script src="js/app.js?v=20260820"></script>
+<script src="js/storage.js?v=20260907a"></script>
+<script src="js/questions.js?v=20260907a"></script>
+<!-- Supplement loads AFTER questions.js (it concats onto QUESTIONS) and BEFORE app.js -->
+<script src="js/questions-supplement.js?v=20260907a"></script>
+<!-- areas.js tags every question with its PSI content area; must precede app.js -->
+<script src="js/areas.js?v=20260907a"></script>
+<script src="js/app.js?v=20260907a"></script>
 <script>
   // Register service worker
   if ('serviceWorker' in navigator) {

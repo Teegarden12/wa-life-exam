@@ -1,13 +1,15 @@
 // Service Worker — WA Life Insurance Exam Prep
 // Bump CACHE whenever the asset version strings below change.
-const CACHE = 'wa-life-exam-v5';
-const VER = '20260820';
+const CACHE = 'wa-life-exam-v7';
+const VER = '20260907a';
 const ASSETS = [
   './',
   './index.html',
-  './css/style.css',
+  './css/style.css?v=' + VER,
   './js/storage.js?v=' + VER,
   './js/questions.js?v=' + VER,
+  './js/questions-supplement.js?v=' + VER,
+  './js/areas.js?v=' + VER,
   './js/app.js?v=' + VER,
   './manifest.json',
   './icons/icon-192.png',

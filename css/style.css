@@ -414,7 +414,10 @@ select, input {
   main { padding: 16px 12px; }
   .nav-brand { font-size: 0.95rem; }
   .nav-btn { padding: 12px 8px; font-size: 0.82rem; }
-  h1 { font-size: 1.3rem; }
+  /* Scale the whole heading ladder together. h1 alone used to shrink to 1.3rem
+     while h2 stayed at 1.25rem, so on a phone they rendered the same size. */
+  h1 { font-size: 1.45rem; }
+  h2 { font-size: 1.15rem; }
   .question-text { font-size: 0.97rem; }
   .result-score { font-size: 2.4rem; }
   .flashcard { height: 220px; }
